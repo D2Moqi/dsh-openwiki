@@ -600,7 +600,10 @@ return {
         if (head !== autoUpdate.lastHead) {
           autoUpdate.lastHead = head
           // Reuse the incremental update job (only changed pages regenerate).
-          await startJob({ workspaceId, mode: 'update', language: 'zh' })
+          // Keep the language of the previous run so regenerated docs stay in
+          // the user's configured language.
+          const lastUpdate = await readLastUpdate(ws.path)
+          await startJob({ workspaceId, mode: 'update', language: (lastUpdate && lastUpdate.language) || 'zh' })
         }
       }
       void tick()
@@ -654,23 +657,15 @@ return {
       }
     }
 
-    const startJob = async (args) => {
-      const workspaceId = String((args && args.workspaceId) ?? '')
-      const mode = (args && args.mode === 'update') ? 'update' : 'init'
-      const language = (args && args.language) || 'zh'
-      const ws = workspaceOf(workspaceId)
-      if (ws === undefined) return { ok: false, error: 'workspace 不存在或不可用' }
-      if (jobs.has(workspaceId)) return { ok: false, error: '该 workspace 已有运行中的任务' }
-
-      // openwiki's repo-wiki mode is git-backed (it diffs HEAD/lastUpdate to
-      // decide what regenerates). A workspace that is not a git repo cannot be
-      // generated in code mode — fail fast with a clear message instead of a
-      // silent spawn that exits immediately.
-      const gitHead = await readGitHead(ws.path)
-      if (gitHead === null) {
-        return { ok: false, error: '该工作目录不是 git 仓库，openwiki 的仓库 Wiki 生成需要 git 历史；请选择已纳入 git 的仓库，或将个人知识改为 personal 模式（本期暂不支持）。' }
-      }
-
+    /**
+     * Spawn the openwiki CLI for one job and attach the poll + completion
+     * lifecycle. Shared by startJob (fresh) and resumeJob (pause → continue).
+     * openwiki's beginRepositoryRun reconstructs an interrupted run from the
+     * durable openwiki/.run.json, so re-running the SAME mode + language
+     * continues from the checkpoint instead of starting over (mode/language/
+     * producer mismatches are refused by openwiki itself).
+     */
+    const launchJob = async (job, ws) => {
       // 模型桥接：任务前确保 ~/.openwiki/.env 与 DSH 模型同步（跟随模式）。
       const built = await buildOpenWikiEnv()
       if (!built.ok) return { ok: false, error: `模型未就绪：${built.error}` }
@@ -681,7 +676,7 @@ return {
       if (cli.error) return { ok: false, error: cli.error }
       if (subprocess === undefined) return { ok: false, error: 'subprocess 服务不可用' }
 
-      const argv = [...cli.args, mode === 'update' ? '--update' : '--init', '-p', '-l', language]
+      const argv = [...cli.args, job.mode === 'update' ? '--update' : '--init', '-p', '-l', job.language]
       let handle
       try {
         handle = subprocess.spawn({
@@ -697,25 +692,14 @@ return {
       } catch (err) {
         return { ok: false, error: `spawn 失败: ${String(err && err.message ? err.message : err)}` }
       }
-
-      const job = {
-        jobId: `${Date.now()}-${workspaceId}`,
-        workspaceId,
-        mode,
-        language,
-        handle,
-        startedAt: new Date().toISOString(),
-        status: 'running', // running | done | error | cancelled
-        phase: 'waiting',
-        total: 0,
-        done: 0,
-        pending: 0,
-        skipped: 0,
-        failed: 0,
-        message: '等待开始分析',
-        cancelled: false,
-      }
-      jobs.set(workspaceId, job)
+      job.handle = handle
+      job.status = 'running'
+      job.phase = 'waiting'
+      job.message = '等待开始分析'
+      job.cancelled = false
+      job.paused = false
+      job.resumedAt = new Date().toISOString()
+      console.log(`openwiki: job launch workspace=${job.workspaceId} mode=${job.mode} language=${job.language} argv=${[cli.program, ...argv].join(' ')}`)
 
       const timer = ctx.get('timer')
       let pollTimer = null
@@ -747,6 +731,14 @@ return {
           job.status = 'cancelled'
           job.phase = 'cancelled'
           job.message = '已取消'
+        } else if (job.paused) {
+          // Paused via 「暂停」: keep the record. openwiki persists
+          // openwiki/.run.json until a run completes, so a later resume
+          // continues from the checkpoint (its own lifecycle, verified in
+          // openwiki 0.4.3 generation/repository-run.js).
+          job.status = 'paused'
+          job.phase = 'paused'
+          job.message = '已暂停，点击「继续」从断点恢复'
         } else {
           const last = await readLastUpdate(ws.path)
           const exited = outcome.exitCode
@@ -756,11 +748,14 @@ return {
             ? `任务结束（openwiki status=${last.status}，exit ${exited}）`
             : `任务结束（exit ${exited}）`
         }
-        if (timer !== undefined) {
+        // A paused job stays in the map until resumed or cancelled; every
+        // other terminal state is garbage-collected after a grace window.
+        if (timer !== undefined && job.status !== 'paused') {
           timer.timeout(() => { jobs.delete(workspaceId) }, 120000)
         }
       }).catch((err) => {
         if (pollTimer !== null) pollTimer()
+        if (job.paused || job.cancelled) return // pause/cancel outcome already handled
         job.status = 'error'
         job.phase = 'failed'
         job.message = `任务异常: ${String(err && err.message ? err.message : err)}`
@@ -769,10 +764,105 @@ return {
       return { ok: true, jobId: job.jobId, phase: job.phase }
     }
 
+    const startJob = async (args) => {
+      const workspaceId = String((args && args.workspaceId) ?? '')
+      const mode = (args && args.mode === 'update') ? 'update' : 'init'
+      const language = (args && args.language) || 'zh'
+      const ws = workspaceOf(workspaceId)
+      if (ws === undefined) return { ok: false, error: 'workspace 不存在或不可用' }
+      if (jobs.has(workspaceId)) return { ok: false, error: '该 workspace 已有任务（可先「暂停/继续/取消」）' }
+
+      // openwiki's repo-wiki mode is git-backed (it diffs HEAD/lastUpdate to
+      // decide what regenerates). A workspace that is not a git repo cannot be
+      // generated in code mode — fail fast with a clear message instead of a
+      // silent spawn that exits immediately.
+      const gitHead = await readGitHead(ws.path)
+      if (gitHead === null) {
+        return { ok: false, error: '该工作目录不是 git 仓库，openwiki 的仓库 Wiki 生成需要 git 历史；请选择已纳入 git 的仓库，或将个人知识改为 personal 模式（本期暂不支持）。' }
+      }
+
+      const job = {
+        jobId: `${Date.now()}-${workspaceId}`,
+        workspaceId,
+        mode,
+        language,
+        handle: null,
+        startedAt: new Date().toISOString(),
+        status: 'running', // running | paused | done | error | cancelled
+        phase: 'waiting',
+        total: 0,
+        done: 0,
+        pending: 0,
+        skipped: 0,
+        failed: 0,
+        message: '等待开始分析',
+        cancelled: false,
+        paused: false,
+      }
+      jobs.set(workspaceId, job)
+      const launched = await launchJob(job, ws)
+      if (!launched.ok) {
+        jobs.delete(workspaceId)
+        return launched
+      }
+      return launched
+    }
+
+    /** Pause a running job: terminate the CLI process; the durable
+     *  openwiki/.run.json makes the interrupted run resumable. */
+    const pauseJob = async (args) => {
+      const workspaceId = String((args && args.workspaceId) ?? '')
+      const job = jobs.get(workspaceId)
+      if (job === undefined || job.status !== 'running') return { ok: false, error: '没有运行中的任务可暂停' }
+      if (job.handle === null) return { ok: false, error: '任务正在启动，请稍后再试' }
+      job.paused = true
+      job.phase = 'pausing'
+      job.message = '正在暂停（等待 openwiki 进程退出）…'
+      try {
+        job.handle.terminate()
+      } catch (err) {
+        job.paused = false
+        job.phase = 'running'
+        job.message = '等待开始分析'
+        return { ok: false, error: `暂停失败: ${String(err && err.message ? err.message : err)}` }
+      }
+      return { ok: true }
+    }
+
+    /** Resume a paused job: re-spawn the same mode + language; openwiki
+     *  reconstructs the run from openwiki/.run.json and continues. */
+    const resumeJob = async (args) => {
+      const workspaceId = String((args && args.workspaceId) ?? '')
+      const job = jobs.get(workspaceId)
+      if (job === undefined || job.status !== 'paused') return { ok: false, error: '没有已暂停的任务可继续' }
+      const ws = workspaceOf(workspaceId)
+      if (ws === undefined) return { ok: false, error: 'workspace 不存在或不可用' }
+      job.paused = false
+      const launched = await launchJob(job, ws)
+      if (!launched.ok) {
+        // Keep the pause visible so the user can retry; the error surfaces.
+        job.paused = true
+        job.status = 'paused'
+        job.phase = 'paused'
+        job.message = `继续失败：${launched.error ?? '未知错误'}`
+        return launched
+      }
+      // launchJob set a running message; keep the resume note visible briefly
+      // is unnecessary — the poll loop updates phase/message within seconds.
+      return launched
+    }
+
     const killJob = async (args) => {
       const workspaceId = String((args && args.workspaceId) ?? '')
       const job = jobs.get(workspaceId)
       if (job === undefined) return { ok: false, error: '没有运行中的任务' }
+      if (job.status === 'paused') {
+        // Nothing to stop: drop the record only. openwiki's durable
+        // openwiki/.run.json is its own lifecycle (the next --init/--update
+        // for this workspace resumes from it), so the plugin never deletes it.
+        jobs.delete(workspaceId)
+        return { ok: true, abandoned: true }
+      }
       job.cancelled = true
       try {
         job.handle.terminate()
@@ -1239,6 +1329,8 @@ return {
     })
 
     harness.handle('openwiki/job/start', async (args) => startJob(args))
+    harness.handle('openwiki/job/pause', async (args) => pauseJob(args))
+    harness.handle('openwiki/job/resume', async (args) => resumeJob(args))
     harness.handle('openwiki/job/kill', async (args) => killJob(args))
     harness.handle('openwiki/job/status', async () => jobStatus())
 

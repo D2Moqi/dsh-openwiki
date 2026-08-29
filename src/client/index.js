@@ -52,6 +52,8 @@ return {
         sidebarRegistered: false,
         // Whether the "openwiki知识库" left footer entry + entry shows at all.
         showEntry: true,
+        // Document content language passed to openwiki (-l/--language, BCP-47).
+        language: 'zh',
         // Auto-update watcher state (host polls git HEAD and regenerates).
         autoUpdate: { enabled: false },
       }
@@ -69,10 +71,13 @@ return {
     }
     const kb = createKbStore()
 
-    // Restore user preference: show the openwiki entry (persisted in localStorage).
+    // Restore user preferences: entry visibility + document language
+    // (persisted in localStorage).
     try {
       const stored = window.localStorage.getItem('dsh-openwiki:showEntry')
       if (stored === '0') kb.set({ showEntry: false })
+      const lang = window.localStorage.getItem('dsh-openwiki:language')
+      if (lang) kb.set({ language: lang })
     } catch { /* localStorage unavailable */ }
 
     const useKb = () => {
@@ -330,10 +335,54 @@ return {
       kb.set({ tabs, activeTab })
     }
 
+    /**
+     * Normalize the configured document-content language into the BCP-47 code
+     * openwiki's `-l/--language` accepts. Mirrors openwiki's own
+     * resolveLanguage (platform/language.js): a tag is valid only when
+     * Intl.DisplayNames recognizes its primary subtag (a structurally valid
+     * but unknown tag like "English" does NOT pass — openwiki would warn and
+     * fall back). Well-known language names ("English", "chinese") map to
+     * their codes so a plain name in the settings input also works.
+     */
+    const normalizeLanguage = (raw) => {
+      const input = String(raw || '').trim().replace(/\s+/gu, ' ')
+      if (!input) return { code: null, error: null, empty: true }
+      const KNOWN = ['en', 'zh', 'zh-CN', 'zh-TW', 'ja', 'ko', 'fr', 'de', 'es', 'it', 'ru', 'pt', 'pt-BR', 'hi', 'ar', 'nl', 'pl', 'tr', 'vi', 'th', 'id', 'uk', 'cs', 'sv', 'da', 'fi', 'no', 'he', 'fa', 'el']
+      try {
+        const display = new Intl.DisplayNames(['en'], { type: 'language' })
+        const canonical = Intl.getCanonicalLocales(input)[0]
+        const primary = new Intl.Locale(canonical).language
+        const name = display.of(primary)
+        if (name && name.toLowerCase() !== primary.toLowerCase()) return { code: canonical, error: null }
+      } catch { /* fall through to name matching below */ }
+      try {
+        const display = new Intl.DisplayNames(['en'], { type: 'language' })
+        const lower = input.toLowerCase()
+        let exact = null
+        let partial = null
+        for (const code of KNOWN) {
+          const name = display.of(code)
+          if (!name) continue
+          const n = name.toLowerCase()
+          if (n === lower) exact = code
+          else if (!partial && n.includes(lower)) partial = code
+        }
+        if (exact) return { code: exact, error: null }
+        if (partial) return { code: partial, error: null }
+      } catch { /* DisplayNames unavailable */ }
+      return { code: null, error: `无法识别的语言 "${input}"：openwiki 使用 BCP-47 语言代码（如 zh / en / zh-CN），或常见语言名（如 English、中文）` }
+    }
+
     const startJob = (mode) => {
       const workspaceId = kb.get().selected
       const overview = kb.get().overview
-      const language = (overview && overview.lastUpdate && overview.lastUpdate.language) || 'zh'
+      const raw = kb.get().language
+      const normalized = normalizeLanguage(raw)
+      if (normalized.error) {
+        kb.set({ error: `文档语言设置无效：${normalized.error}` })
+        return
+      }
+      const language = normalized.code || ((overview && overview.lastUpdate && overview.lastUpdate.language) || 'zh')
       kb.set({ error: null })
       call('openwiki/job/start', { workspaceId, mode, language })
         .then((res) => {
@@ -343,10 +392,34 @@ return {
         .catch((err) => kb.set({ error: `任务启动失败：${String(err && err.message ? err.message : err)}` }))
     }
 
+    const pauseJob = () => {
+      const workspaceId = kb.get().selected
+      call('openwiki/job/pause', { workspaceId })
+        .then((res) => {
+          if (res && res.ok === false) kb.set({ error: res.error })
+          refreshJobs()
+        })
+        .catch((err) => kb.set({ error: `暂停失败：${String(err && err.message ? err.message : err)}` }))
+    }
+
+    const resumeJob = () => {
+      const workspaceId = kb.get().selected
+      kb.set({ error: null })
+      call('openwiki/job/resume', { workspaceId })
+        .then((res) => {
+          if (res && res.ok === false) kb.set({ error: res.error })
+          refreshJobs()
+        })
+        .catch((err) => kb.set({ error: `继续失败：${String(err && err.message ? err.message : err)}` }))
+    }
+
     const killJob = () => {
       const workspaceId = kb.get().selected
       call('openwiki/job/kill', { workspaceId })
-        .then(() => refreshJobs())
+        .then((res) => {
+          if (res && res.abandoned) kb.set({ error: '已放弃暂停中的任务（openwiki 的 .run.json 保留，下次生成会从断点恢复；如需全新生成请先完成该次任务）' })
+          refreshJobs()
+        })
         .catch(() => {})
     }
 
@@ -700,16 +773,33 @@ return {
     const renderProgress = (job) => {
       if (!job) return null
       const pct = job.total > 0 ? Math.round((job.done / job.total) * 100) : 0
+      const paused = job.status === 'paused'
+      const tagClass = paused ? 'owk-tag-warn' : 'owk-tag-run'
+      const tagText = paused ? '已暂停' : (job.phase === 'cancelled' ? '已取消' : job.phase)
       return React.createElement('div', { className: 'owk-card' },
         React.createElement('div', { className: 'owk-row' },
-          React.createElement('span', { className: 'owk-tag owk-tag-run' }, job.phase === 'cancelled' ? '已暂停' : job.phase),
+          React.createElement('span', { className: `owk-tag ${tagClass}` }, tagText),
           React.createElement('span', null, job.message),
           React.createElement('span', { className: 'owk-overlay-spacer' }),
+          // Pause/resume mirror openwiki's durable run state: pausing stops the
+          // CLI process (openwiki/.run.json persists), resuming re-runs the
+          // same mode + language so openwiki continues from the checkpoint.
+          paused
+            ? React.createElement('button', {
+                type: 'button',
+                className: 'owk-btn owk-btn-primary',
+                onClick: () => resumeJob(),
+              }, '继续')
+            : React.createElement('button', {
+                type: 'button',
+                className: 'owk-btn',
+                onClick: () => pauseJob(),
+              }, '暂停'),
           React.createElement('button', {
             type: 'button',
             className: 'owk-btn',
             onClick: () => killJob(),
-          }, '取消'),
+          }, paused ? '放弃' : '取消'),
         ),
         React.createElement('div', { className: 'owk-progress', style: { marginTop: 6 } },
           React.createElement('div', { className: 'owk-progress-fill', style: { width: `${pct}%` } })),
@@ -832,7 +922,9 @@ return {
 
     const renderKb = (snap, workspaces) => {
       const sel = snap.selected
-      const job = snap.jobs.find((j) => j.workspaceId === sel && j.status === 'running')
+      // A paused job still occupies the workspace (resume continues it), so it
+      // blocks starting a new run and shows the 暂停/继续 progress card.
+      const job = snap.jobs.find((j) => j.workspaceId === sel && (j.status === 'running' || j.status === 'paused'))
       const overview = snap.overview
       const tree = snap.tree
       const claims = snap.claims
@@ -1594,6 +1686,40 @@ return {
                     ? React.createElement('pre', { className: 'owk-pre', style: { marginTop: 4 } }, snap.modelCommand)
                     : null,
                 ),
+          ),
+          React.createElement('div', { className: 'owk-card' },
+            React.createElement('div', { className: 'owk-row' },
+              React.createElement('span', { style: { fontWeight: 600 } }, '文档内容语言'),
+              React.createElement('span', { className: 'owk-overlay-spacer' }),
+              React.createElement('span', { className: 'owk-muted' }, '设置页'),
+            ),
+            React.createElement('div', { className: 'owk-row', style: { marginTop: 6 } },
+              React.createElement('input', {
+                type: 'text',
+                className: 'owk-select',
+                style: { flex: 1, minWidth: 0, boxSizing: 'border-box' },
+                placeholder: '例如 zh / en / zh-CN / English / 中文',
+                value: snap.language,
+                onChange: (e) => kb.set({ language: e.target.value }),
+              }),
+              React.createElement('button', {
+                type: 'button',
+                className: 'owk-btn owk-btn-primary',
+                onClick: () => {
+                  const normalized = normalizeLanguage(kb.get().language)
+                  if (normalized.error) {
+                    kb.set({ error: `文档语言设置无效：${normalized.error}` })
+                    return
+                  }
+                  kb.set({ language: normalized.code || 'zh', error: null })
+                  try { window.localStorage.setItem('dsh-openwiki:language', normalized.code || 'zh') } catch { /* noop */ }
+                },
+              }, '保存'),
+            ),
+            React.createElement('div', { className: 'owk-muted', style: { marginTop: 6 } },
+              '生成 / 重新生成 / 更新文档时传给 openwiki 的 -l/--language（BCP-47）。默认中文（zh）；输入 English、chinese 等常见语言名也会自动换算成对应代码。'),
+            React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } },
+              '注意：切换语言后「重新生成」会按 openwiki 的语言变更逻辑重写全部文档；下一次运行以设置的文档内容语言为准。'),
           ),
           React.createElement('div', { className: 'owk-card' },
             React.createElement('div', { className: 'owk-row' },

@@ -1,6 +1,6 @@
 {
   "name": "dsh-openwiki",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "openwiki 知识库：DSH 内嵌代码库 Wiki 生成与阅读（复用 DSH 模型、运行时托管、生成/更新任务、知识卡片）。",
   "type": "module",
   "main": "lib/index.js",
