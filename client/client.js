@@ -46,8 +46,9 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         // 未完成的任务，将从断点继续"。
         notice: null,
         // Optional openwiki generation model override (--modelId); empty =
-        // follow the DSH default model.
-        model: '',
+        // follow the DSH default model. NOTE: named genModel because the store
+        // key `model` is owned by the DSH model-status payload (refreshModel).
+        genModel: '',
         // Floating window geometry (fixed overlay window, draggable/resizable).
         win: { x: 120, y: 80, w: 860, h: 620, max: false },
         // Left column width (px) of the kb layout; draggable via a resizer bar.
@@ -86,7 +87,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       const lang = window.localStorage.getItem('dsh-openwiki:language')
       if (lang) kb.set({ language: lang })
       const mdl = window.localStorage.getItem('dsh-openwiki:model')
-      if (mdl) kb.set({ model: mdl })
+      if (mdl) kb.set({ genModel: mdl })
     } catch { /* localStorage unavailable */ }
 
     const useKb = () => {
@@ -392,7 +393,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         return
       }
       const language = normalized.code || ((overview && overview.lastUpdate && overview.lastUpdate.language) || 'zh')
-      const model = String(kb.get().model || '').trim() || undefined
+      const model = String(kb.get().genModel || '').trim() || undefined
       kb.set({ error: null })
       call('openwiki/job/start', { workspaceId, mode, language, model })
         .then((res) => {
@@ -789,32 +790,51 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       if (!job) return null
       const pct = job.total > 0 ? Math.round((job.done / job.total) * 100) : 0
       const paused = job.status === 'paused'
+      // 「暂停中…」：host 已发出终止信号、进程尚未退出（phase='pausing'）。
+      // 这 1~2 秒内按钮保持禁用并显示加载反馈，避免用户误以为没有响应。
+      const pausing = !paused && job.phase === 'pausing'
       const tagClass = paused ? 'owk-tag-warn' : 'owk-tag-run'
-      const tagText = paused ? '已暂停' : (job.phase === 'cancelled' ? '已取消' : job.phase)
+      const tagText = paused ? '已暂停' : (pausing ? '暂停中…' : (job.phase === 'cancelled' ? '已取消' : job.phase))
+      // 布局：第一行 = 状态标签 + 文案（可换行）；第二行 = 操作按钮，始终
+      // 独立成行且不被长文案挤压（原先按钮与文案同行会被 Flex-wrap 挤走）。
+      const buttons = paused
+        ? [
+            React.createElement('button', {
+              key: 'resume',
+              type: 'button',
+              className: 'owk-btn owk-btn-primary',
+              onClick: () => resumeJob(),
+            }, '继续'),
+            React.createElement('button', {
+              key: 'abandon',
+              type: 'button',
+              className: 'owk-btn',
+              onClick: () => killJob(),
+            }, '放弃'),
+          ]
+        : [
+            React.createElement('button', {
+              key: 'pause',
+              type: 'button',
+              className: 'owk-btn',
+              disabled: pausing,
+              onClick: () => pauseJob(),
+            }, pausing ? '暂停中…' : '暂停'),
+            React.createElement('button', {
+              key: 'cancel',
+              type: 'button',
+              className: 'owk-btn',
+              disabled: pausing,
+              onClick: () => killJob(),
+            }, '取消'),
+          ]
       return React.createElement('div', { className: 'owk-card' },
         React.createElement('div', { className: 'owk-row' },
           React.createElement('span', { className: `owk-tag ${tagClass}` }, tagText),
           React.createElement('span', null, job.message),
-          React.createElement('span', { className: 'owk-overlay-spacer' }),
-          // Pause/resume mirror openwiki's durable run state: pausing stops the
-          // CLI process (openwiki/.run.json persists), resuming re-runs the
-          // same mode + language so openwiki continues from the checkpoint.
-          paused
-            ? React.createElement('button', {
-                type: 'button',
-                className: 'owk-btn owk-btn-primary',
-                onClick: () => resumeJob(),
-              }, '继续')
-            : React.createElement('button', {
-                type: 'button',
-                className: 'owk-btn',
-                onClick: () => pauseJob(),
-              }, '暂停'),
-          React.createElement('button', {
-            type: 'button',
-            className: 'owk-btn',
-            onClick: () => killJob(),
-          }, paused ? '放弃' : '取消'),
+        ),
+        React.createElement('div', { className: 'owk-row', style: { marginTop: 6 } },
+          buttons,
         ),
         React.createElement('div', { className: 'owk-progress', style: { marginTop: 6 } },
           React.createElement('div', { className: 'owk-progress-fill', style: { width: `${pct}%` } })),
@@ -1651,12 +1671,12 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                       type: 'button',
                       className: 'owk-btn',
                       onClick: () => {
-                        const v = String(kb.get().model || '').trim()
+                        const v = String(kb.get().genModel || '').trim()
                         if (v && !/^[A-Za-z0-9][A-Za-z0-9._:/@+,-]*$/u.test(v)) {
                           kb.set({ error: `模型 ID 无效：${v}` })
                           return
                         }
-                        kb.set({ model: v, error: null })
+                        kb.set({ genModel: v, error: null })
                         try { window.localStorage.setItem('dsh-openwiki:model', v) } catch { /* noop */ }
                       },
                     }, '保存生成模型'),
@@ -1665,8 +1685,8 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                       className: 'owk-select',
                       style: { flex: 1, minWidth: 0, boxSizing: 'border-box' },
                       placeholder: '生成模型（可选）：留空跟随 DSH 模型，如 deepseek-chat',
-                      value: snap.model,
-                      onChange: (e) => kb.set({ model: e.target.value }),
+                      value: snap.genModel,
+                      onChange: (e) => kb.set({ genModel: e.target.value }),
                     }),
                   ),
                   React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } },

@@ -186,7 +186,6 @@ return {
     }
 
     /** Query the npm registry for the latest published openwiki version. */
-    let latestWarned = false
     const readLatest = async () => {
       if (web === undefined) return null
       try {
@@ -194,14 +193,11 @@ return {
         if (res.statusCode !== 200 || res.body.kind !== 'text') return null
         const parsed = JSON.parse(res.body.content)
         return typeof parsed.version === 'string' ? parsed.version : null
-      } catch (err) {
-        // No web provider registered (headless/temp instance) is a benign
-        // "latest version unavailable" case, not an error worth spamming on
-        // every status poll — only log it once.
-        if (!latestWarned) {
-          latestWarned = true
-          console.error(`openwiki: registry query failed: ${String(err && err.message ? err.message : err)}`)
-        }
+      } catch {
+        // No usable web provider is registered in this deployment, so the
+        // "latest version" fact is unavailable. This is a benign absence (the
+        // status card just shows 最新/— without an upgrade hint) — keep it
+        // silent instead of spamming the instance log on every status poll.
         return null
       }
     }
