@@ -123,8 +123,21 @@ return {
     const refreshRuntime = () => {
       kb.set({ busy: true, lastOutput: '' })
       call('openwiki/runtime/status', {})
-        .then((res) => kb.set({ runtime: res, busy: false }))
-        .catch((err) => kb.set({ runtime: { error: String(err && err.message ? err.message : err) }, busy: false }))
+        .then((res) => {
+          // Normalize an RPC-level failure into the same shape as a host
+          // status, so the footer entry never misreads it as "未安装".
+          const payload = res && typeof res === 'object' ? res : {}
+          kb.set({
+            runtime: payload.ok === false
+              ? { installed: false, error: payload.error || '运行时状态查询失败' }
+              : payload,
+            busy: false,
+          })
+        })
+        .catch((err) => kb.set({
+          runtime: { installed: false, error: String(err && err.message ? err.message : err) },
+          busy: false,
+        }))
     }
 
     const refreshModel = () => {
@@ -1674,6 +1687,12 @@ return {
       // No timer service: best-effort single immediate attempt.
       autoRegisterSidebar()
     }
+
+    // Warm the runtime + model state on load so the sidebar footer entry and
+    // the settings page show live data (installed state, version) right away
+    // instead of only after the first click / settings open.
+    if (kb.get().runtime === null) refreshRuntime()
+    if (kb.get().model === null) refreshModel()
 
     console.log('dsh-openwiki client: M4 redesign loaded')
   },
