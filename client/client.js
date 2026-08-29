@@ -1520,10 +1520,13 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       { name: 'settings.section', id: 'openwiki', order: 30, label: () => 'openwiki' },
       () => {
         const snap = useKb()
-        // Auto-load runtime + model state when the settings section opens.
+        // Always re-fetch runtime + model state when the settings section
+        // opens: the page-load warm-up can race the app boot (an early RPC can
+        // fail and leave the cards in their fallback state), so the first
+        // explicit visit heals them without requiring a manual 「刷新」.
         React.useEffect(() => {
-          if (kb.get().runtime === null) refreshRuntime()
-          if (kb.get().model === null) refreshModel()
+          refreshRuntime()
+          refreshModel()
           refreshSidebar()
           fetchAutoUpdate()
         }, [])
