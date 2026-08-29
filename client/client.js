@@ -42,6 +42,12 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         showIgnore: false,
         ignoreContent: '',
         error: null,
+        // Neutral (non-error) info line shown in the KB window, e.g. "检测到
+        // 未完成的任务，将从断点继续"。
+        notice: null,
+        // Optional openwiki generation model override (--modelId); empty =
+        // follow the DSH default model.
+        model: '',
         // Floating window geometry (fixed overlay window, draggable/resizable).
         win: { x: 120, y: 80, w: 860, h: 620, max: false },
         // Left column width (px) of the kb layout; draggable via a resizer bar.
@@ -79,6 +85,8 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       if (stored === '0') kb.set({ showEntry: false })
       const lang = window.localStorage.getItem('dsh-openwiki:language')
       if (lang) kb.set({ language: lang })
+      const mdl = window.localStorage.getItem('dsh-openwiki:model')
+      if (mdl) kb.set({ model: mdl })
     } catch { /* localStorage unavailable */ }
 
     const useKb = () => {
@@ -384,10 +392,16 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         return
       }
       const language = normalized.code || ((overview && overview.lastUpdate && overview.lastUpdate.language) || 'zh')
+      const model = String(kb.get().model || '').trim() || undefined
       kb.set({ error: null })
-      call('openwiki/job/start', { workspaceId, mode, language })
+      call('openwiki/job/start', { workspaceId, mode, language, model })
         .then((res) => {
-          if (res && res.ok === false) kb.set({ error: res.error })
+          if (res && res.ok === false) {
+            kb.set({ error: res.error })
+          } else if (res && res.resumed) {
+            const rmode = res.resumedMode === 'update' ? '增量更新' : '初始化'
+            kb.set({ error: null, notice: `检测到之前未完成的生成任务（已保存断点），openwiki 将从断点继续（${rmode} · 语言 ${res.resumedLanguage || language}${model ? `、模型 ${model}` : ''}）` })
+          }
           refreshJobs()
         })
         .catch((err) => kb.set({ error: `任务启动失败：${String(err && err.message ? err.message : err)}` }))
@@ -1082,7 +1096,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                 ),
                 overview.lastUpdate
                   ? React.createElement('div', { className: 'owk-muted' },
-                      `更新时间：${String(overview.lastUpdate.updatedAt || '').slice(0, 16).replace('T', ' ')} · ${overview.lastUpdate.language} · ${overview.lastUpdate.status}`)
+                      `更新时间：${String(overview.lastUpdate.updatedAt || '').slice(0, 16).replace('T', ' ')} · ${overview.lastUpdate.language} · ${overview.lastUpdate.status} · 模型 ${overview.lastUpdate.model || '—'}`)
                   : null,
                 overview.wikiDirRelative
                   ? React.createElement('div', { className: 'owk-muted' }, `文档位置：项目根目录/${overview.wikiDirRelative}`)
@@ -1120,6 +1134,9 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
               ),
           snap.error
             ? React.createElement('div', { className: 'owk-row', style: { color: '#e74c3c' } }, snap.error)
+            : null,
+          snap.notice
+            ? React.createElement('div', { className: 'owk-row owk-muted', style: { color: '#27ae60' } }, snap.notice)
             : null,
           renderProgress(job),
           snap.tabs.length > 0
@@ -1497,44 +1514,6 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
     ))
 
     // ------------------------------------------------------------------
-    // 3) Conversation view tab
-    // ------------------------------------------------------------------
-    slots.inject('conversation.view', () => slots.register(
-      { name: 'conversation.view', id: 'openwiki', order: 20, label: () => 'openwiki知识库' },
-      (props) => {
-        const snap = useKb()
-        // Fetch the latest workspace list when this view mounts/toggles (the
-        // component may stay mounted across tab switches, so poll on visibility).
-        React.useEffect(() => {
-          fetchWorkspaces()
-        }, [])
-        const wsList = snap.workspaces
-        return React.createElement('div', { style: { height: '100%', display: 'flex', flexDirection: 'column' } },
-          React.createElement('div', { className: 'owk-row', style: { padding: '8px 14px', borderBottom: '1px solid var(--dsw-border, #333)' } },
-            React.createElement('span', { className: 'owk-icon' }, '📚'),
-            React.createElement('span', null, `知识库视图 · 会话 ${props.sessionId}`),
-            React.createElement('span', { className: 'owk-overlay-spacer' }),
-            React.createElement('button', {
-              type: 'button',
-              className: 'owk-btn',
-              onClick: () => kb.set({ open: true }),
-            }, '打开全屏'),
-            React.createElement('button', {
-              type: 'button',
-              className: 'owk-btn',
-              onClick: () => props.openView('chat', ''),
-            }, '回到对话'),
-          ),
-          React.createElement('div', { style: { flex: 1, overflow: 'hidden', display: 'flex' } },
-            React.createElement('div', { className: 'owk-body', style: { flex: 1, display: 'flex', padding: 0 } },
-              renderKb(snap, wsList),
-            ),
-          ),
-        )
-      },
-    ))
-
-    // ------------------------------------------------------------------
     // 4) Settings section — runtime + model management
     // ------------------------------------------------------------------
     slots.inject('settings.section', () => slots.register(
@@ -1657,6 +1636,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                       ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, `已存在（provider=${m.envProvider ?? '?'}，model=${m.envModel ?? '?'}）`)
                       : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, '不存在'),
                   ),
+                  // 同步 + 可选生成模型（--modelId，留空跟随 DSH 模型）。
                   React.createElement('div', { className: 'owk-row', style: { marginTop: 8 } },
                     React.createElement('button', {
                       type: 'button',
@@ -1664,7 +1644,30 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                       disabled: snap.busy || !m.keyConfigured,
                       onClick: syncModel,
                     }, '同步到 openwiki (.env)'),
+                    React.createElement('button', {
+                      type: 'button',
+                      className: 'owk-btn',
+                      onClick: () => {
+                        const v = String(kb.get().model || '').trim()
+                        if (v && !/^[A-Za-z0-9][A-Za-z0-9._:/@+,-]*$/u.test(v)) {
+                          kb.set({ error: `模型 ID 无效：${v}` })
+                          return
+                        }
+                        kb.set({ model: v, error: null })
+                        try { window.localStorage.setItem('dsh-openwiki:model', v) } catch { /* noop */ }
+                      },
+                    }, '保存生成模型'),
+                    React.createElement('input', {
+                      type: 'text',
+                      className: 'owk-select',
+                      style: { flex: 1, minWidth: 0, boxSizing: 'border-box' },
+                      placeholder: '生成模型（可选）：留空跟随 DSH 模型，如 deepseek-chat',
+                      value: snap.model,
+                      onChange: (e) => kb.set({ model: e.target.value }),
+                    }),
                   ),
+                  React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } },
+                    'openwiki 支持 --modelId 覆盖生成模型：填一个更快的模型（如 deepseek-chat）可显著提升生成速度；留空则跟随 DSH 模型。'),
                   // Model-bridge feedback lives in THIS card (the runtime card
                   // owns lastOutput for install/update/probe only).
                   snap.modelOutput

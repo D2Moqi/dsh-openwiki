@@ -448,6 +448,9 @@ return {
       if (owProvider === 'openai-compatible') {
         if (baseURL) updates.OPENAI_COMPATIBLE_BASE_URL = baseURL
         updates.OPENAI_COMPATIBLE_API_KEY = key
+        // openwiki 默认为非流式：长文档生成会等待整段输出返回（易超时/慢）。
+        // 显式开启流式以更快见到首块输出并降低超时风险。
+        updates.OPENWIKI_OPENAI_COMPATIBLE_STREAMING = 'true'
       } else if (owProvider === 'anthropic') {
         if (baseURL) updates.ANTHROPIC_BASE_URL = baseURL
         updates.ANTHROPIC_API_KEY = key
@@ -640,7 +643,18 @@ return {
           else if (p.status === 'failed') failed += 1
           else pending += 1
         }
-        return { phase: parsed.phase ?? 'generating', total: pages.length, done, pending, skipped, failed }
+        return {
+          phase: parsed.phase ?? 'generating',
+          total: pages.length,
+          done,
+          pending,
+          skipped,
+          failed,
+          // Resume ownership facts (openwiki requires the SAME mode + language
+          // when reconstructing an interrupted run from .run.json).
+          mode: parsed.mode ?? null,
+          language: parsed.language ?? null,
+        }
       } catch {
         return null
       }
@@ -667,9 +681,12 @@ return {
      */
     const launchJob = async (job, ws) => {
       // 模型桥接：任务前确保 ~/.openwiki/.env 与 DSH 模型同步（跟随模式）。
+      // 自定义生成模型（job.model，--modelId 优先于 env）同步写入 env，
+      // 让 env 状态卡与本次运行保持一致。
       const built = await buildOpenWikiEnv()
       if (!built.ok) return { ok: false, error: `模型未就绪：${built.error}` }
-      const applied = await applyEnvUpdates(built.updates)
+      const updates = job.model ? { ...built.updates, OPENWIKI_MODEL_ID: job.model } : built.updates
+      const applied = await applyEnvUpdates(updates)
       if (!applied.ok) return { ok: false, error: `写入 .env 失败：${applied.error}` }
 
       const cli = await resolveCli()
@@ -677,6 +694,7 @@ return {
       if (subprocess === undefined) return { ok: false, error: 'subprocess 服务不可用' }
 
       const argv = [...cli.args, job.mode === 'update' ? '--update' : '--init', '-p', '-l', job.language]
+      if (job.model) argv.push('--modelId', job.model)
       let handle
       try {
         handle = subprocess.spawn({
@@ -742,11 +760,20 @@ return {
         } else {
           const last = await readLastUpdate(ws.path)
           const exited = outcome.exitCode
-          job.status = exited === 0 ? 'done' : 'error'
-          job.phase = exited === 0 ? 'completed' : 'failed'
-          job.message = last
-            ? `任务结束（openwiki status=${last.status}，exit ${exited}）`
-            : `任务结束（exit ${exited}）`
+          // An interrupted run leaves .last-update.json at status="interrupted"
+          // with a durable .run.json — the NEXT start resumes it. Surface that
+          // plainly instead of a cryptic "任务结束(status=interrupted)".
+          if (exited !== 0 && last && last.status === 'interrupted') {
+            job.status = 'error'
+            job.phase = 'interrupted'
+            job.message = '任务被中断（openwiki 已保存断点，点击「重新生成」将从断点继续）'
+          } else {
+            job.status = exited === 0 ? 'done' : 'error'
+            job.phase = exited === 0 ? 'completed' : 'failed'
+            job.message = last
+              ? `任务结束（openwiki status=${last.status}，exit ${exited}）`
+              : `任务结束（exit ${exited}）`
+          }
         }
         // A paused job stays in the map until resumed or cancelled; every
         // other terminal state is garbage-collected after a grace window.
@@ -766,8 +793,9 @@ return {
 
     const startJob = async (args) => {
       const workspaceId = String((args && args.workspaceId) ?? '')
-      const mode = (args && args.mode === 'update') ? 'update' : 'init'
-      const language = (args && args.language) || 'zh'
+      let mode = (args && args.mode === 'update') ? 'update' : 'init'
+      let language = (args && args.language) || 'zh'
+      const model = String((args && args.model) || '').trim() || null
       const ws = workspaceOf(workspaceId)
       if (ws === undefined) return { ok: false, error: 'workspace 不存在或不可用' }
       if (jobs.has(workspaceId)) return { ok: false, error: '该 workspace 已有任务（可先「暂停/继续/取消」）' }
@@ -781,21 +809,33 @@ return {
         return { ok: false, error: '该工作目录不是 git 仓库，openwiki 的仓库 Wiki 生成需要 git 历史；请选择已纳入 git 的仓库，或将个人知识改为 personal 模式（本期暂不支持）。' }
       }
 
+      // A durable openwiki/.run.json means this start will RESUME the
+      // interrupted run (openwiki's own lifecycle) — and openwiki refuses to
+      // resume it under a DIFFERENT mode or language ("Resume that run before
+      // starting X"), which is exactly why a cancelled init followed by
+      // "重新生成" (update) used to fail with exit 1. Follow the persisted
+      // ownership facts so the resume actually continues the run.
+      const existingRun = await readRunState(ws.path)
+      const resumed = existingRun !== null
+      if (resumed && existingRun.mode) mode = existingRun.mode
+      if (resumed && existingRun.language) language = existingRun.language
+
       const job = {
         jobId: `${Date.now()}-${workspaceId}`,
         workspaceId,
         mode,
         language,
+        model,
         handle: null,
         startedAt: new Date().toISOString(),
         status: 'running', // running | paused | done | error | cancelled
         phase: 'waiting',
-        total: 0,
-        done: 0,
+        total: existingRun ? existingRun.total : 0,
+        done: existingRun ? existingRun.done : 0,
         pending: 0,
         skipped: 0,
         failed: 0,
-        message: '等待开始分析',
+        message: resumed ? '检测到已中断任务，正在从断点继续…' : '等待开始分析',
         cancelled: false,
         paused: false,
       }
@@ -805,7 +845,7 @@ return {
         jobs.delete(workspaceId)
         return launched
       }
-      return launched
+      return { ...launched, resumed, resumedMode: job.mode, resumedLanguage: job.language }
     }
 
     /** Pause a running job: terminate the CLI process; the durable
@@ -863,12 +903,22 @@ return {
         jobs.delete(workspaceId)
         return { ok: true, abandoned: true }
       }
+      if (job.cancelled) return { ok: true }
       job.cancelled = true
       try {
         job.handle.terminate()
       } catch (err) {
+        job.cancelled = false
         return { ok: false, error: `终止失败: ${String(err && err.message ? err.message : err)}` }
       }
+      // Wait for the process to be fully gone, THEN drop the record so a
+      // follow-up 「重新生成」 never collides with the dying process and never
+      // gets the stale "已有任务" refusal (the record is no longer kept for
+      // the 120s grace window).
+      try {
+        await job.handle.done
+      } catch { /* done rejects only on spawn-level failure; keep going */ }
+      if (jobs.get(workspaceId) === job) jobs.delete(workspaceId)
       return { ok: true }
     }
 

@@ -1,6 +1,6 @@
 {
   "id": "dsh-external/dsh-openwiki",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "main": "./lib/index.js",
   "description": "openwiki 知识库：在 DSH 内生成并阅读代码库 Wiki。复用 DSH 模型与运行时托管，支持文档内容语言（BCP-47）、生成/增量更新任务（可暂停/继续）、目录树与全文阅读、知识卡片（claims）、.openwikiignore 与 git 提交驱动的自动更新。",
   "engines": {
