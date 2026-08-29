@@ -2,6 +2,8 @@
   <a href="README.md">简体中文</a> | <strong>English</strong>
 </p>
 
+This is currently a development test version, which may have various issues—please use with caution. The official release 1.0.0 will be available in future updates.
+
 # dsh-openwiki
 
 > A DSH plugin that brings [openwiki](https://github.com/langchain-ai/openwiki)'s codebase knowledge-base capability into DeepSeek Harness — generate / read / update repository Wiki and Grounded Claims (traceable knowledge cards) in one click, **reusing the model already configured in DSH**, no need to enter an API key again.
@@ -356,7 +358,7 @@ openwiki has **no** git-commit trigger (no hook / no file watcher; only a daily 
 | `registerSidebarTab` / `autoRegisterSidebar`       | 1009 / 1037     | better-sidebar registration                         |
 | `toggleShowEntry` / `SidebarKbView`                | 975 / 983       | entry visibility / side-page view                   |
 
-**Markdown rendering note** (must-read for maintenance): `renderMarkdown`'s fenced block detection must be `line.startsWith('```')` (it used `/^```(\S*)\s*$/`, which fails for **space-containing info strings** like  ` ```ts type-equiv`; the line then fell into the paragraph branch and was excluded by `!/^```/` → `i` never advanced → **infinite loop hang**, fixed in M6.1).
+**Markdown rendering note** (must-read for maintenance): `renderMarkdown`'s fenced block detection must be `line.startsWith('```')` (it used `/^```(\S*)\s*$/`, which fails for **space-containing info strings** like   ` ```ts type-equiv`; the line then fell into the paragraph branch and was excluded by `!/^```/` → `i` never advanced → **infinite loop hang**, fixed in M6.1).
 
 ***
 

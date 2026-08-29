@@ -2,6 +2,8 @@
   <strong>简体中文</strong> | <a href="README.en.md">English</a>
 </p>
 
+当前为开发测试版，可能存在各种问题请谨慎使用，后续更新1.0.0为正式版
+
 # dsh-openwiki
 
 > DSH 插件：把 [openwiki](https://github.com/langchain-ai/openwiki) 的代码库知识库能力搬进 DeepSeek Harness —— 一键生成 / 阅读 / 更新仓库 Wiki 与 Grounded Claims（溯源知识卡片），**直接复用 DSH 已配置的模型**，无需二次填 Key。
@@ -358,7 +360,7 @@ openwiki **没有** git 提交触发（无 hook/无文件监听，仅自带每�
 | `registerSidebarTab` / `autoRegisterSidebar`       | 1009 / 1037     | better-sidebar 注册     |
 | `toggleShowEntry` / `SidebarKbView`                | 975 / 983       | 入口显隐 / 侧边页视图          |
 
-**Markdown 渲染注意**（维护必读）：`renderMarkdown` 的 fenced code block 检测必须是 `line.startsWith('```')`（曾用 `/^```(\S*)\s*$/`，对  ` ```ts type-equiv` 这类**带空格语言串**匹配失败，行落入 paragraph 分支又被 `!/^```/` 排除 → `i` 永不前进 → **无限循环卡死**，已在 M6.1 修复）。
+**Markdown 渲染注意**（维护必读）：`renderMarkdown` 的 fenced code block 检测必须是 `line.startsWith('```')`（曾用 `/^```(\S*)\s*$/`，对   ` ```ts type-equiv` 这类**带空格语言串**匹配失败，行落入 paragraph 分支又被 `!/^```/` 排除 → `i` 永不前进 → **无限循环卡死**，已在 M6.1 修复）。
 
 ***
 
@@ -366,25 +368,25 @@ openwiki **没有** git 提交触发（无 hook/无文件监听，仅自带每�
 
 全部 POST `/dsh-openwiki/rpc`，需 `x-dsh-openwiki: 1` 头。Client 的 `call(method, args)` 封装。
 
-| 方法                                              | 参数                                                | 返回要点                                                                                                       | <br /> | <br /> | <br />                                |
-| ----------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | :----- | :----- | :------------------------------------ |
-| `openwiki/runtime/status`                       | —                                                 | `{installed, version, latestVersion, hasUpdate, exePath, scriptPath, error}`                               | <br /> | <br /> | <br />                                |
-| `openwiki/runtime/install` / `update` / `probe` | —                                                 | \`{ok, version                                                                                             | from   | to     | output}`；probe 返回 ` --help\` 前 600 字符 |
-| `openwiki/runtime/ensure` / `checkUpdate`       | —                                                 | 惰性确保 / 版本对比                                                                                                | <br /> | <br /> | <br />                                |
-| `openwiki/model/status`                         | —                                                 | `{selection, owProvider, apiKeyEnv, keyConfigured, keySource, envExists, envProvider, envModel, warnings}` | <br /> | <br /> | <br />                                |
-| `openwiki/model/sync`                           | —                                                 | 执行 `.env` 写入                                                                                               | <br /> | <br /> | <br />                                |
-| `openwiki/model/env`                            | —                                                 | 已管理 env 键值（密钥掩码）                                                                                           | <br /> | <br /> | <br />                                |
-| `openwiki/workspaces`                           | —                                                 | `{workspaces:[{id,path,title}]}`（workspaceRegistry）                                                        | <br /> | <br /> | <br />                                |
-| `openwiki/job/start`                            | `{workspaceId, mode('init'\|'update'), language}` | `{ok, jobId}`；非 git 仓库报明确错误                                                                                | <br /> | <br /> | <br />                                |
-| `openwiki/job/kill`                             | `{workspaceId}`                                   | `{ok}`                                                                                                     | <br /> | <br /> | <br />                                |
-| `openwiki/job/status`                           | —                                                 | `{jobs:[{jobId, workspaceId, status, phase, total, done, failed, message}]}`                               | <br /> | <br /> | <br />                                |
-| `openwiki/wiki/tree`                            | `{workspaceId}`                                   | `{pages:[{path,title,status}], inProgress[], scanError}`                                                   | <br /> | <br /> | <br />                                |
-| `openwiki/wiki/page`                            | `{workspaceId, path}`                             | `{content, frontmatter}`（无 `.md` 输入有兜底）                                                                    | <br /> | <br /> | <br />                                |
-| `openwiki/wiki/overview`                        | `{workspaceId}`                                   | `{pageCount, successCount, failedCount, wikiDirRelative, runActive, runPhase, runProgress, lastUpdate}`    | <br /> | <br /> | <br />                                |
-| `openwiki/wiki/claims`                          | `{workspaceId}`                                   | `{claims:[{id,statement,evidenceCount,firstEvidence,page}]}`                                               | <br /> | <br /> | <br />                                |
-| `openwiki/ignore/get` / `save`                  | `{workspaceId, content?}`                         | 忽略文件读写                                                                                                     | <br /> | <br /> | <br />                                |
-| `openwiki/autoupdate/set` / `status`            | `{workspaceId, enabled?}`                         | 自动更新开关 / 状态                                                                                                | <br /> | <br /> | <br />                                |
-| `openwiki/logs/tail`                            | —                                                 | 占位（当前返回空）                                                                                                  | <br /> | <br /> | <br />                                |
+| 方法                                              | 参数                                                | 返回要点                                                                                                       | <br /> | <br /> | <br />                                 |
+| ----------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | :----- | :----- | :------------------------------------- |
+| `openwiki/runtime/status`                       | —                                                 | `{installed, version, latestVersion, hasUpdate, exePath, scriptPath, error}`                               | <br /> | <br /> | <br />                                 |
+| `openwiki/runtime/install` / `update` / `probe` | —                                                 | \`{ok, version                                                                                             | from   | to     | output}`；probe 返回 `  --help\` 前 600 字符 |
+| `openwiki/runtime/ensure` / `checkUpdate`       | —                                                 | 惰性确保 / 版本对比                                                                                                | <br /> | <br /> | <br />                                 |
+| `openwiki/model/status`                         | —                                                 | `{selection, owProvider, apiKeyEnv, keyConfigured, keySource, envExists, envProvider, envModel, warnings}` | <br /> | <br /> | <br />                                 |
+| `openwiki/model/sync`                           | —                                                 | 执行 `.env` 写入                                                                                               | <br /> | <br /> | <br />                                 |
+| `openwiki/model/env`                            | —                                                 | 已管理 env 键值（密钥掩码）                                                                                           | <br /> | <br /> | <br />                                 |
+| `openwiki/workspaces`                           | —                                                 | `{workspaces:[{id,path,title}]}`（workspaceRegistry）                                                        | <br /> | <br /> | <br />                                 |
+| `openwiki/job/start`                            | `{workspaceId, mode('init'\|'update'), language}` | `{ok, jobId}`；非 git 仓库报明确错误                                                                                | <br /> | <br /> | <br />                                 |
+| `openwiki/job/kill`                             | `{workspaceId}`                                   | `{ok}`                                                                                                     | <br /> | <br /> | <br />                                 |
+| `openwiki/job/status`                           | —                                                 | `{jobs:[{jobId, workspaceId, status, phase, total, done, failed, message}]}`                               | <br /> | <br /> | <br />                                 |
+| `openwiki/wiki/tree`                            | `{workspaceId}`                                   | `{pages:[{path,title,status}], inProgress[], scanError}`                                                   | <br /> | <br /> | <br />                                 |
+| `openwiki/wiki/page`                            | `{workspaceId, path}`                             | `{content, frontmatter}`（无 `.md` 输入有兜底）                                                                    | <br /> | <br /> | <br />                                 |
+| `openwiki/wiki/overview`                        | `{workspaceId}`                                   | `{pageCount, successCount, failedCount, wikiDirRelative, runActive, runPhase, runProgress, lastUpdate}`    | <br /> | <br /> | <br />                                 |
+| `openwiki/wiki/claims`                          | `{workspaceId}`                                   | `{claims:[{id,statement,evidenceCount,firstEvidence,page}]}`                                               | <br /> | <br /> | <br />                                 |
+| `openwiki/ignore/get` / `save`                  | `{workspaceId, content?}`                         | 忽略文件读写                                                                                                     | <br /> | <br /> | <br />                                 |
+| `openwiki/autoupdate/set` / `status`            | `{workspaceId, enabled?}`                         | 自动更新开关 / 状态                                                                                                | <br /> | <br /> | <br />                                 |
+| `openwiki/logs/tail`                            | —                                                 | 占位（当前返回空）                                                                                                  | <br /> | <br /> | <br />                                 |
 
 ***
 
