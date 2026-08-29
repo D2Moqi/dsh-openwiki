@@ -6,9 +6,17 @@
   "main": "lib/index.js",
   "license": "MIT",
   "keywords": ["deepseek", "harness", "dsh", "dsh-plugin", "openwiki", "wiki", "knowledge"],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/d2moqi/dsh-openwiki.git"
+  },
+  "homepage": "https://gitee.com/d2moqi/dsh-openwiki",
   "scripts": {
     "build": "node scripts/build-host.mjs && node scripts/build-client.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "prepack": "npm run build"
   },
   "dependencies": {},
   "peerDependencies": {
@@ -37,6 +45,7 @@
     "src",
     "screenshots",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "README.en.md"
   ]
 }

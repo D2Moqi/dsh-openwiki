@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="README.md">简体中文</a> | <strong>English</strong>
+</p>
+
 # dsh-openwiki
 
 > A DSH plugin that brings [openwiki](https://github.com/langchain-ai/openwiki)'s codebase knowledge-base capability into DeepSeek Harness — generate / read / update repository Wiki and Grounded Claims (traceable knowledge cards) in one click, **reusing the model already configured in DSH**, no need to enter an API key again.
@@ -22,17 +26,40 @@
 
 ## 🚀 Installation
 
+Prerequisites: Node ≥ 20, openwiki CLI (the plugin can install it automatically), DSH model + credentials configured.
+
+### Option 1: npm package (recommended)
+
 ```powershell
-dsh plugin --profile web add D:\dsh-openwiki\code\plugin\dsh-openwiki
-# Append to C:\Users\Administrator\.dsh\profiles\web\cordis.patch.yml:
+dsh plugin --profile web add dsh-openwiki
+```
+
+### Option 2: Local source
+
+```powershell
+# 1. Get the source into any local directory (referred to as <source-dir> below)
+git clone <repository-url> <source-dir>
+
+# 2. Build the artifacts (lib/ and client/)
+cd <source-dir>
+npm run build
+
+# 3. Install into the DSH web profile as a local directory
+dsh plugin --profile web add <source-dir>
+```
+
+### Post-install configuration (same for both options)
+
+```powershell
+# Edit <your-DSH-user-dir>\profiles\web\cordis.patch.yml, append:
 # - id: dsh-openwiki
 #   name: 'dsh-openwiki'
 # Restart dsh web
 ```
 
-- Installed as a **symlink** on this machine: `C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-openwiki → D:\dsh-openwiki\code\plugin\dsh-openwiki`; edit source + rebuild takes effect, restart loads the new bundle
-- `dsh.profile.bundles` must include `dsh-openwiki` (dsh.client manifest: platform web, peerDependency schemastery)
-- Prerequisites: Node ≥ 20, openwiki CLI (the plugin can install it automatically), DSH model + credentials configured
+> Notes:
+> - When installing from a local directory, `dsh plugin add` links the profile's `node_modules` entry to `<source-dir>` (pnpm's default behavior for directory installs); edit source + `npm run build`, then restart dsh web to load the new bundle
+> - `dsh.profile.bundles` must include `dsh-openwiki` (dsh.client manifest: platform web, peerDependency schemastery)
 
 ---
 
@@ -41,7 +68,7 @@ dsh plugin --profile web add D:\dsh-openwiki\code\plugin\dsh-openwiki
 ### Directory Layout
 
 ```
-code/plugin/dsh-openwiki/
+<source-dir>/
 ├── src/host/index.js        # Host authoritative source (shared by dynamic & package forms)
 ├── src/client/index.js      # Client authoritative source
 ├── scripts/build-host.mjs   # → lib/index.js (ESM entry)
@@ -58,6 +85,25 @@ code/plugin/dsh-openwiki/
 3. Start a temp instance for verification: `dsh web --port 3081` (does not touch the main instance 3080), run the matching script under `tests/`
 4. Commit (only add source / build artifacts / docs / screenshots; `openwiki/`, `.github/`, `AGENTS.md` etc. are artifacts — do not commit)
 5. Tell the user to restart the main instance 3080 to load the new bundle
+
+### Publishing an npm Package
+
+```powershell
+# 1. Log in to the official registry (mirror registries have their own
+#    account system and cannot be used to log in or publish)
+npm login --registry=https://registry.npmjs.org/
+
+# 2. Bump the version (or edit the "version" field in package.json manually)
+npm version patch   # 0.1.0 → 0.1.1 (minor / major likewise)
+
+# 3. Publish (the prepack hook runs `npm run build` automatically)
+npm publish
+
+# 4. Verify
+npm view dsh-openwiki
+```
+
+> Note: `npm login` and `npm publish` must use the same registry (the official one). If your local registry is set to a mirror (check with `npm config get registry`), switch back before publishing with `npm config set registry https://registry.npmjs.org/`.
 
 ### AI-Facing Notes
 

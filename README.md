@@ -1,3 +1,7 @@
+<p align="center">
+  <strong>简体中文</strong> | <a href="README.en.md">English</a>
+</p>
+
 # dsh-openwiki
 
 > DSH 插件：把 [openwiki](https://github.com/langchain-ai/openwiki) 的代码库知识库能力搬进 DeepSeek Harness —— 一键生成 / 阅读 / 更新仓库 Wiki 与 Grounded Claims（溯源知识卡片），**直接复用 DSH 已配置的模型**，无需二次填 Key。
@@ -22,17 +26,40 @@
 
 ## 🚀 安装
 
+前置依赖：Node ≥ 20、openwiki CLI（插件可自动安装）、DSH 已配置模型与凭证。
+
+### 方式一：npm 包（推荐）
+
 ```powershell
-dsh plugin --profile web add D:\dsh-openwiki\code\plugin\dsh-openwiki
-# 编辑 C:\Users\Administrator\.dsh\profiles\web\cordis.patch.yml 追加：
+dsh plugin --profile web add dsh-openwiki
+```
+
+### 方式二：本地源码
+
+```powershell
+# 1. 获取源码到本地任意目录（下文以 <源码目录> 指代）
+git clone <仓库地址> <源码目录>
+
+# 2. 构建产物（lib/ 与 client/）
+cd <源码目录>
+npm run build
+
+# 3. 以本地目录方式安装到 DSH web profile
+dsh plugin --profile web add <源码目录>
+```
+
+### 安装后配置（两种方式相同）
+
+```powershell
+# 编辑 <你的 DSH 用户目录>\profiles\web\cordis.patch.yml，追加：
 # - id: dsh-openwiki
 #   name: 'dsh-openwiki'
 # 重启 dsh web
 ```
 
-- 本机以**符号链接**安装：`C:\Users\Administrator\.dsh\profiles\web\node_modules\dsh-openwiki → D:\dsh-openwiki\code\plugin\dsh-openwiki`，改源码 + 构建即生效，重启即可加载新 bundle
-- `dsh.profile.bundles` 需含 `dsh-openwiki`（dsh.client manifest：platform web，peerDependency schemastery）
-- 前置依赖：Node ≥ 20、openwiki CLI（插件可自动安装）、DSH 已配置模型与凭证
+> 说明：
+> - 本地目录方式安装时，`dsh plugin add` 会在 profile 的 `node_modules` 下建立指向 `<源码目录>` 的链接（pnpm 目录安装默认行为），改源码 + `npm run build` 后重启 dsh web 即生效
+> - `dsh.profile.bundles` 需含 `dsh-openwiki`（dsh.client manifest：platform web，peerDependency schemastery）
 
 ---
 
@@ -41,7 +68,7 @@ dsh plugin --profile web add D:\dsh-openwiki\code\plugin\dsh-openwiki
 ### 目录结构
 
 ```
-code/plugin/dsh-openwiki/
+<源码目录>/
 ├── src/host/index.js        # Host 权威源码（动态/包共用）
 ├── src/client/index.js      # Client 权威源码
 ├── scripts/build-host.mjs   # → lib/index.js（ESM 入口）
@@ -58,6 +85,24 @@ code/plugin/dsh-openwiki/
 3. 启动临时实例验证：`dsh web --port 3081`（不占主实例 3080），跑 `tests/` 下对应脚本
 4. 提交（只 add 源码/构建产物/文档/截图；`openwiki/`、`.github/`、`AGENTS.md` 等是产物勿提交）
 5. 告知用户重启主实例 3080 加载新 bundle
+
+### 发布 npm 包
+
+```powershell
+# 1. 登录官方源（镜像源有独立的账号体系，无法登录/发布）
+npm login --registry=https://registry.npmjs.org/
+
+# 2. 提升版本号（或手动修改 package.json 的 version）
+npm version patch   # 0.1.0 → 0.1.1（minor / major 同理）
+
+# 3. 发布（prepack 钩子会自动先执行 npm run build）
+npm publish
+
+# 4. 验证
+npm view dsh-openwiki
+```
+
+> 注意：`npm login` 与 `npm publish` 必须使用同一 registry（官方源）。若本机 registry 被配置为镜像（`npm config get registry` 查看），发布前先 `npm config set registry https://registry.npmjs.org/`。
 
 ### 面向 AI 的注意事项
 
