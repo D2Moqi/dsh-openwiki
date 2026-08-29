@@ -20,6 +20,10 @@ return {
         busy: false,
         action: null,
         lastOutput: '',
+        // Model-bridge (M2) feedback: belongs to the MODEL settings card, not
+        // the runtime card (lastOutput is runtime-only).
+        modelOutput: '',
+        modelCommand: null,
         workspaces: [],
         selected: null,
         overview: null,
@@ -152,6 +156,39 @@ return {
           busy: false,
           action: null,
           lastOutput: `调用失败：${String(err && err.message ? err.message : err)}`,
+        }))
+    }
+
+    // Model sync (M2): independent of runtime actions, so its result/error is
+    // published to the MODEL card (modelOutput) instead of the runtime card's
+    // lastOutput. A permission failure returns a copy-paste command (the
+    // user runs it in a terminal) instead of a dead-end error row.
+    const syncModel = () => {
+      kb.set({ busy: true, modelOutput: '', modelCommand: null })
+      call('openwiki/model/sync', {})
+        .then((res) => {
+          const payload = res && typeof res === 'object' ? res : {}
+          if (payload.ok) {
+            const via = payload.via === 'node'
+              ? '（经 node 子进程写入，绕过工作区沙箱限制）'
+              : '（经 DSH fs 服务写入）'
+            kb.set({
+              modelOutput: `同步成功${via}：\n${(payload.applied ?? []).join('、')}\n写入：${payload.envPath ?? '~/.openwiki/.env'}`,
+              modelCommand: null,
+              busy: false,
+            })
+          } else {
+            kb.set({
+              modelOutput: `同步失败：${payload.error ?? '未知错误'}`,
+              modelCommand: payload.command ?? null,
+              busy: false,
+            })
+          }
+          refreshModel()
+        })
+        .catch((err) => kb.set({
+          busy: false,
+          modelOutput: `同步调用失败：${String(err && err.message ? err.message : err)}`,
         }))
     }
 
@@ -1091,6 +1128,17 @@ return {
       .owk-entry { display: flex; align-items: center; gap: 8px; width: 100%; border: none;
         background: transparent; color: inherit; cursor: pointer; padding: 6px 10px; border-radius: 6px;
         font-size: 13px; }
+      /* Sidebar footer conflict fix: the shell renders every sidebar.footer.action
+         entry side-by-side in one non-wrapping flex row, so loading this plugin
+         together with other footer plugins (e.g. dsh-cost-meter) squeezes the
+         openwiki entry to the right of that row. The slot runner wraps each
+         registered entry in a display:contents div (inline-styled by the shell);
+         scope the override with :has() to the wrapper that directly holds OUR
+         entry and stack it into a full-width column, so openwiki lands on its
+         own line at the bottom-left (directly above 设置) while other plugins'
+         entries keep their own layout. */
+      div:has(> .owk-entry) { display: flex !important; flex-direction: column !important;
+        width: 100% !important; min-width: 0; align-items: stretch; }
       .owk-entry:hover { background: var(--dsw-hover, rgba(255,255,255,0.08)); }
       .owk-icon { font-size: 15px; line-height: 1; }
       .owk-body { flex: 1; overflow: auto; padding: 16px 20px; }
@@ -1508,9 +1556,30 @@ return {
                       type: 'button',
                       className: 'owk-btn owk-btn-primary',
                       disabled: snap.busy || !m.keyConfigured,
-                      onClick: () => runAction('openwiki/model/sync', 'syncing', {}),
+                      onClick: syncModel,
                     }, '同步到 openwiki (.env)'),
                   ),
+                  // Model-bridge feedback lives in THIS card (the runtime card
+                  // owns lastOutput for install/update/probe only).
+                  snap.modelOutput
+                    ? React.createElement('div', { className: 'owk-pre', style: { marginTop: 6 } }, snap.modelOutput)
+                    : null,
+                  snap.modelCommand
+                    ? React.createElement('div', { className: 'owk-row', style: { marginTop: 6 } },
+                        React.createElement('button', {
+                          type: 'button',
+                          className: 'owk-btn',
+                          onClick: () => {
+                            try { navigator.clipboard.writeText(snap.modelCommand) } catch { /* clipboard unavailable */ }
+                          },
+                        }, '复制命令'),
+                        React.createElement('span', { className: 'owk-muted' },
+                          '在终端执行后重新点击同步（命令包含 API Key，请勿泄露）'),
+                      )
+                    : null,
+                  snap.modelCommand
+                    ? React.createElement('pre', { className: 'owk-pre', style: { marginTop: 4 } }, snap.modelCommand)
+                    : null,
                 ),
           ),
           React.createElement('div', { className: 'owk-card' },
