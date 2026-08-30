@@ -2,8 +2,6 @@
   <a href="README.md">简体中文</a> | <strong>English</strong>
 </p>
 
-This is currently a development test version, which may have various issues—please use with caution. The official release 1.0.0 will be available in future updates.
-
 # dsh-openwiki
 
 > A DSH plugin that brings [openwiki](https://github.com/langchain-ai/openwiki)'s codebase knowledge-base capability into DeepSeek Harness — generate / read / update repository Wiki and Grounded Claims (traceable knowledge cards) in one click, **reusing the model already configured in DSH**, no need to enter an API key again.
@@ -124,9 +122,13 @@ dsh plugin --profile web add <source-dir>
 
   ![Knowledge-base floating window](screenshots/readme-1-window.png)
 
-* **🗂️ Dual-mode views**: two persistent tabs — `Open Wiki` (repo Wiki document tree) and `知识卡片` (Grounded Claims traceable points) — with selected highlight; plus "忽略文件" (ignore file) and "Refresh" buttons; the left column width is draggable.
+* **🗂️ Three-mode views**: three persistent tabs — `Open Wiki` (repo Wiki document tree), `知识卡片` (Grounded Claims traceable points) and `知识库` (personal-mode knowledge base) — with selected highlight; plus "忽略文件" (ignore file) and "Refresh" buttons; the left column width is draggable.
 
-  ![Left column, dual tabs and button row](screenshots/readme-4-left.png)
+  ![Left column, three-mode tabs and button row](screenshots/readme-4-left.png)
+
+* **🧠 Knowledge base (personal mode)**: the third tab `知识库` — upload local files (text formats, with a file-type hint; add/remove file behavior is described under the "生成知识库" button) to build a personal knowledge base at `<project>/openwiki-kb/wiki` (via `OPENWIKI_CONFIG_DIR` injection); the tree reader reuses the document view. **Model credentials stay single-sourced**: they are injected from `~/.openwiki/.env` into the child process — nothing is duplicated in the project, and one `.gitignore` line for `openwiki-kb/` excludes every personal artifact.
+
+  ![Knowledge base (personal mode) view](screenshots/readme-6-kb.png)
 
 * **📄 Document reading**: preview / code dual views + **TOC split pane** (click "目录" to split a left TOC panel beneath the toolbar, with its own vertical scrollbar, sticky and not scrolling with the body; clicking an entry smooth-scrolls to the heading).
 
@@ -148,13 +150,13 @@ dsh plugin --profile web add <source-dir>
 
 * **🖥️ Runtime hosting**: auto-detects the openwiki CLI (parses the npm shim), version check (registry), install / upgrade / self-check (`--help`).
 
-* **🔔 Auto-update**: polls the selected workspace's git HEAD; on a new commit it runs an incremental update (openwiki has no native git trigger, the plugin supplies it).
+* **🔔 Auto-update**: polls each workspace's git HEAD; on a new commit it runs an incremental update (openwiki has no native git trigger, the plugin supplies it); **defaults to ON for every workspace** — the switch sits next to the "Refresh" button in the knowledge-base left column (**shown only on the Open Wiki tab**; cards and knowledge base are unaffected), **per-workspace independent**, a manual disable is never overridden.
 
 * **🧩 better-sidebar integration**: when the `dsh-better-sidebar` service is detected it **auto-registers** a side page (re-registered after refresh, effectively persistent); when not installed the settings page shows install guidance.
 
 * **🛡️ Ignore file**: `.openwikiignore` (gitignore syntax) graphical editing and save.
 
-* **⚙️ Settings page**: runtime / model / auto-update / better-sidebar registration / entry visibility.
+* **⚙️ Settings page**: runtime / model / better-sidebar registration / entry visibility (the auto-update switch moved to the knowledge-base panel, per workspace).
 
   ![openwiki settings page](screenshots/readme-7-settings.png)
 
@@ -216,7 +218,7 @@ state = {
 | `sidebar.footer.action` | `openwiki` (order 10) | entry above the bottom-left "Settings" button (hidden when `showEntry=false`)    |
 | `shell.overlay`         | `openwiki-kb`         | floating window host (`.owk-win`, draggable/resizable/maximizable)               |
 | `conversation.view`     | `openwiki` (order 20) | knowledge-base view tab in the conversation area                                 |
-| `settings.section`      | `openwiki` (order 30) | settings page: runtime / model / auto-update / better-sidebar / entry visibility |
+| `settings.section`      | `openwiki` (order 30) | settings page: runtime / model / better-sidebar / entry visibility (auto-update switch lives in the knowledge-base panel) |
 
 ***
 
@@ -312,7 +314,9 @@ openwiki has **no** git-commit trigger (no hook / no file watcher; only a daily 
 
 * Host `startAutoUpdate(workspaceId)`: every 15s `readGitHead` (`git rev-parse --verify HEAD`), compare with the previous value; on change run `startJob({mode:'update'})` (incremental: openwiki regenerates only changed pages per `lastUpdate.gitHead` and `git diff`)
 
-* Toggle on the settings "自动更新" card, via `openwiki/autoupdate/set|status` RPC
+* Toggle next to the "Refresh" button in the knowledge-base left column (shown only on the Open Wiki tab), via `openwiki/autoupdate/set|status` RPC (`status` accepts a `workspaceId` to query one workspace)
+
+* **Per-workspace since 0.2.1**: every workspace keeps its own switch/poll/last HEAD (`autoUpdates` Map); disabling one workspace (`userDisabled`) does not affect others and is never overridden by the default; a no-arg `status` returns all workspaces; state is in-memory — restarting DSH re-enables defaults (manual disables excepted)
 
 ### better-sidebar Auto-registration
 
@@ -383,7 +387,7 @@ All POST `/dsh-openwiki/rpc`, requires the `x-dsh-openwiki: 1` header. Client `c
 | `openwiki/wiki/overview`                        | `{workspaceId}`                                   | `{pageCount, successCount, failedCount, wikiDirRelative, runActive, runPhase, runProgress, lastUpdate}`    |
 | `openwiki/wiki/claims`                          | `{workspaceId}`                                   | `{claims:[{id,statement,evidenceCount,firstEvidence,page}]}`                                               |
 | `openwiki/ignore/get` / `save`                  | `{workspaceId, content?}`                         | ignore-file read/write                                                                                     |
-| `openwiki/autoupdate/set` / `status`            | `{workspaceId, enabled?}`                         | auto-update toggle / state                                                                                 |
+| `openwiki/autoupdate/set` / `status`            | `{workspaceId, enabled?}`                         | per-workspace auto-update toggle / state (`status` with workspaceId queries one; no arg returns all) |
 | `openwiki/logs/tail`                            | —                                                 | placeholder (returns empty currently)                                                                      |
 
 ***
@@ -395,7 +399,7 @@ All POST `/dsh-openwiki/rpc`, requires the `x-dsh-openwiki: 1` header. Client `c
 | settings namespace persistence | the `openwiki` namespace registration depends on schemastery, whose dynamic import from the profile node\_modules may fail; actual config today uses in-memory state + localStorage, core features unaffected |
 | `latestVersion`                | without a usable web provider `readLatest` returns null (logged once); "new version" hint empty                                                                                                               |
 | Markdown rendering             | lightweight (headings/code blocks/tables/lists/quotes/inline), Mermaid fences shown as code blocks, no full Markdown dialects                                                                                 |
-| personal mode                  | repository (code) mode only; non-git dirs cannot be generated (clear error)                                                                                                                                   |
+| personal mode                  | ✅ supported (`openwiki/kb/*` + `job/start {kind:'personal'}`): output at `<project>/openwiki-kb/wiki` (`OPENWIKI_CONFIG_DIR` injection); no `.run.json` checkpoint / per-page progress in personal mode; Grounded Claims remain code-mode only |
 | auto-update granularity        | HEAD polling every 15s, not instant; incremental update only after a new commit is detected                                                                                                                   |
 | `openwiki/logs/tail`           | placeholder (returns empty); can later wire openwiki run logs                                                                                                                                                 |
 
@@ -406,6 +410,7 @@ All POST `/dsh-openwiki/rpc`, requires the `x-dsh-openwiki: 1` header. Client `c
 | Script                                                                                                                   | Coverage                                                                             |
 | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
 | `tests/verify-host-entry.mjs`                                                                                            | Host entry offline test (name/inject/RPC route/auth/dispatch)                        |
+| `tests/verify-kb-host.mjs`                                                                                              | Knowledge base (personal) host half: dir conventions/import (traversal, binary)/file management/personal job env injection & argv/source-RPC-removed & default auto-update assertions |
 | `tests/redesign-verify.mjs`                                                                                              | M4: floating window/dual tabs/collapse tree/in-link nav/settings (23 checks)         |
 | `tests/link-nav-verify.mjs`                                                                                              | in-link navigation focus                                                             |
 | `tests/sidebar-reg-verify.mjs`                                                                                           | better-sidebar manual registration focus                                             |

@@ -2,8 +2,6 @@
   <strong>简体中文</strong> | <a href="README.en.md">English</a>
 </p>
 
-当前为开发测试版，可能存在各种问题请谨慎使用，后续更新1.0.0为正式版
-
 # dsh-openwiki
 
 > DSH 插件：把 [openwiki](https://github.com/langchain-ai/openwiki) 的代码库知识库能力搬进 DeepSeek Harness —— 一键生成 / 阅读 / 更新仓库 Wiki 与 Grounded Claims（溯源知识卡片），**直接复用 DSH 已配置的模型**，无需二次填 Key。
@@ -124,9 +122,13 @@ dsh plugin --profile web add <源码目录>
 
   ![知识库浮动窗口](screenshots/readme-1-window.png)
 
-* **🗂️ 双模式视图**：`Open Wiki`（仓库 Wiki 文档树）与 `知识卡片`（Grounded Claims 溯源抽点）两个常驻 Tab，选中高亮；另有「忽略文件」「刷新」按钮；左栏宽度可拖动调整
+* **🗂️ 三模式视图**：`Open Wiki`（仓库 Wiki 文档树）、`知识卡片`（Grounded Claims 溯源抽点）与 `知识库`（personal 模式个人知识库）三个常驻 Tab，选中高亮；另有「忽略文件」「刷新」按钮；左栏宽度可拖动调整
 
-  ![左栏、双 Tab 与按钮行](screenshots/readme-4-left.png)
+  ![左栏、三模式 Tab 与按钮行](screenshots/readme-4-left.png)
+
+* **🧠 知识库（personal 模式）**：第三个 Tab「知识库」——上传本地文件（文本格式，含文件类型提示；新增/删除文件的行为说明见「生成知识库」按钮下方）生成个人知识库，输出到 `<项目>/openwiki-kb/wiki`（`OPENWIKI_CONFIG_DIR` 注入），树形阅读复用文档视图；**模型凭据单点化**：从 `~/.openwiki/.env` 注入子进程，项目内不重复配置，`openwiki-kb/` 一条 gitignore 排除全部 personal 产物
+
+  ![知识库（personal 模式）视图](screenshots/readme-6-kb.png)
 
 * **📄 文档阅读**：预览 / 代码双视图 + **目录分栏**（点击「目录」在工具栏下方分出左侧目录面板，独立竖滚动条、sticky 不随正文滚动；点条目平滑滚动到对应标题）
 
@@ -148,13 +150,13 @@ dsh plugin --profile web add <源码目录>
 
 * **🖥️ 运行时托管**：自动检测 openwiki CLI（解析 npm shim）、版本检查（registry）、安装 / 升级 / 自检（`--help`）
 
-* **🔔 自动更新**：轮询所选工作区 git HEAD，检测到新提交自动跑增量更新（openwiki 无原生 git 触发器，由插件补上）
+* **🔔 自动更新**：轮询各工作区 git HEAD，检测到新提交自动跑增量更新（openwiki 无原生 git 触发器，由插件补上）；**安装后默认对所有工作区开启**——开关在知识库面板左栏「刷新」旁（**仅 Open Wiki Tab 显示**，知识卡片/知识库不涉及），**按工作区独立**，手动关闭某个工作区后不会自动重开
 
 * **🧩 better-sidebar 集成**：检测到 `dsh-better-sidebar` 服务即**自动注册**一个侧边页面（刷新后自动重注册，等效持久化）；未安装时设置页给出安装指引
 
 * **🛡️ 忽略文件**：`.openwikiignore`（gitignore 语法）图形化编辑保存
 
-* **⚙️ 设置页**：运行时 / 模型 / 自动更新 / better-sidebar 注册 / 入口显隐
+* **⚙️ 设置页**：运行时 / 模型 / better-sidebar 注册 / 入口显隐（自动更新开关已移至知识库面板，按工作区独立）
 
   ![openwiki 设置页](screenshots/readme-7-settings.png)
 
@@ -216,7 +218,7 @@ state = {
 | `sidebar.footer.action` | `openwiki`（order 10） | 左下角「设置」上方入口（`showEntry=false` 时隐藏）          |
 | `shell.overlay`         | `openwiki-kb`        | 浮动窗口宿主（`.owk-win`，可拖拽/缩放/最大化）               |
 | `conversation.view`     | `openwiki`（order 20） | 会话区域的知识库视图 Tab                              |
-| `settings.section`      | `openwiki`（order 30） | 设置页：运行时 / 模型 / 自动更新 / better-sidebar / 入口显示 |
+| `settings.section`      | `openwiki`（order 30） | 设置页：运行时 / 模型 / better-sidebar / 入口显示（自动更新开关在知识库面板） |
 
 ***
 
@@ -314,7 +316,9 @@ openwiki **没有** git 提交触发（无 hook/无文件监听，仅自带每�
 
 * Host `startAutoUpdate(workspaceId)`：每 15s `readGitHead`（`git rev-parse --verify HEAD`），与上次比较；变化即 `startJob({mode:'update'})`（增量：openwiki 按 `lastUpdate.gitHead` 与 `git diff` 只重生成变更页）
 
-* 开关在设置页「自动更新」卡片，`openwiki/autoupdate/set|status` RPC
+* 开关在知识库面板左栏「刷新」旁（仅 Open Wiki Tab 显示），`openwiki/autoupdate/set|status` RPC（`status` 支持按 workspaceId 查询单个工作区状态）
+
+* **0.2.1 起按工作区独立**：每个工作区有独立开关/轮询/上次 HEAD（`autoUpdates` Map）；关闭某工作区（`userDisabled`）不影响其他工作区，也不会被默认行为自动重开；无参 `status` 返回全部工作区状态；状态为进程内存态，重启 DSH 后重新进入即恢复默认开启（手动关闭过的除外）
 
 ### better-sidebar 自动注册
 
@@ -385,8 +389,11 @@ openwiki **没有** git 提交触发（无 hook/无文件监听，仅自带每�
 | `openwiki/wiki/overview`                        | `{workspaceId}`                                   | `{pageCount, successCount, failedCount, wikiDirRelative, runActive, runPhase, runProgress, lastUpdate}`    | <br /> | <br /> | <br />                                 |
 | `openwiki/wiki/claims`                          | `{workspaceId}`                                   | `{claims:[{id,statement,evidenceCount,firstEvidence,page}]}`                                               | <br /> | <br /> | <br />                                 |
 | `openwiki/ignore/get` / `save`                  | `{workspaceId, content?}`                         | 忽略文件读写                                                                                                     | <br /> | <br /> | <br />                                 |
-| `openwiki/autoupdate/set` / `status`            | `{workspaceId, enabled?}`                         | 自动更新开关 / 状态                                                                                                | <br /> | <br /> | <br />                                 |
+| `openwiki/autoupdate/set` / `status`            | `{workspaceId, enabled?}`                         | 按工作区自动更新开关 / 状态（`status` 带 workspaceId 查单工作区，无参返回全部）                       | <br /> | <br /> | <br />                                 |
 | `openwiki/logs/tail`                            | —                                                 | 占位（当前返回空）                                                                                                  | <br /> | <br /> | <br />                                 |
+| `openwiki/kb/config` / `config/save`            | `{workspaceId, prompt?}`                          | personal 目录约定（configDirName/sourceRel/wikiDir/sourceDir）+ 可配置生成提示词                                   | <br /> | <br /> | <br />                                 |
+| `openwiki/kb/import` / `files` / `delete`       | `{workspaceId, files?\|path?}`                    | 上传文件到 `openwiki-kb/source/files`（路径穿越防护）/ 递归列表 / 删除                                             | <br /> | <br /> | <br />                                 |
+| `openwiki/kb/tree` / `page` / `overview`        | `{workspaceId, path?}`                            | personal 模式知识库树 / 页面 / 状态（`openwiki-kb/wiki` 为根，.last-update.json 在其下）                            | <br /> | <br /> | <br />                                 |
 
 ***
 
@@ -397,7 +404,7 @@ openwiki **没有** git 提交触发（无 hook/无文件监听，仅自带每�
 | settings 命名空间持久化     | `openwiki` 命名空间注册依赖 schemastery，从 profile node\_modules 动态 import 可能失败；当前实际配置走内存态 + localStorage，核心功能不受影响 |
 | `latestVersion`      | 无可用 web provider 时 `readLatest` 返回 null（只记一次日志），"最新版本"提示为空                                                |
 | Markdown 渲染          | 轻量实现（标题/代码块/表格/列表/引用/行内样式），Mermaid 围栏按代码块展示，不做完整 Markdown 方言                                              |
-| personal 模式          | 仅支持仓库（code）模式；非 git 目录不可生成（已明确报错）                                                                         |
+| personal 模式          | ✅ 已支持（`openwiki/kb/*` + `job/start {kind:'personal'}`）：输出 `<项目>/openwiki-kb/wiki`（`OPENWIKI_CONFIG_DIR` 注入）；personal 模式无 `.run.json` 断点/无逐页进度；知识卡（Grounded Claims）仍为 code（仓库）模式专属                                                                         |
 | 自动更新粒度               | HEAD 轮询间隔 15s，非即时；检测到新提交才触发增量更新                                                                           |
 | `openwiki/logs/tail` | 占位实现（返回空），后续可接 openwiki 运行日志                                                                              |
 
@@ -416,6 +423,7 @@ openwiki **没有** git 提交触发（无 hook/无文件监听，仅自带每�
 | `tests/round3-verify.mjs`                                                                                                | M6：目录分栏/按钮两行/trae 生成错误（11 项）          |
 | `tests/fixverify.mjs`                                                                                                    | 状态误判/左侧路径/渲染回归                        |
 | `tests/verify-scan.mjs` / `verify-claims-scan.mjs` / `verify-frontmatter.mjs` / `verify-reader.mjs` / `verify-final.mjs` | 离线解析验证                                |
+| `tests/verify-kb-host.mjs`                                                                                        | 知识库（personal）host 半部：目录约定/导入（穿越防护、二进制）/文件管理/personal job env 注入与 argv/来源 RPC 已移除断言 |
 
 Playwright 用法：`$env:DSH_GUI_BASE='http://127.0.0.1:3081'; node tests/<script>.mjs`（headless Chrome + playwright-core，`createRequire('C:/nvm4w/nodejs/package.json')`）。
 
