@@ -16,7 +16,9 @@
   "homepage": "https://gitee.com/d2moqi/dsh-openwiki",
   "scripts": {
     "build": "node scripts/build-host.mjs && node scripts/build-client.mjs",
-    "prepack": "npm run build"
+    "sync:version": "node scripts/sync-version.mjs",
+    "version": "node scripts/sync-version.mjs",
+    "prepack": "node scripts/sync-version.mjs --check && npm run build"
   },
   "dependencies": {},
   "peerDependencies": {
