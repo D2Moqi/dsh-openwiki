@@ -18,3 +18,5 @@ tests/screenshots/
 .vscode/
 Thumbs.db
 .DS_Store
+/AGENTS.md
+/CLAUDE.md
