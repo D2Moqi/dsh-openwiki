@@ -1,11 +1,19 @@
 {
   "name": "dsh-openwiki",
-  "version": "0.2.1",
+  "version": "2.0.4",
   "description": "openwiki 知识库：DSH 内嵌代码库 Wiki 生成与阅读（复用 DSH 模型、运行时托管、生成/更新任务、知识卡片）。",
   "type": "module",
   "main": "lib/index.js",
   "license": "MIT",
-  "keywords": ["deepseek", "harness", "dsh", "dsh-plugin", "openwiki", "wiki", "knowledge"],
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "openwiki",
+    "wiki",
+    "knowledge"
+  ],
   "engines": {
     "node": ">=20"
   },
