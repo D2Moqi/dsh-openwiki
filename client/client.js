@@ -10,6 +10,532 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
     const timer = ctx.get('timer')
 
     // ------------------------------------------------------------------
+    // Display languages (static option list). Shared by the "界面语言"
+    // (interface language) select and the "文档内容语言" (document content
+    // language) select. Only languages that have a built-in UI dictionary
+    // (UI_DICTS.zh / en / ja / ko) are exposed; labels are fixed native
+    // names, values are BCP-47 codes.
+    // ------------------------------------------------------------------
+    const LANGS = [
+      { code: 'zh', label: '中文' },
+      { code: 'en', label: 'English' },
+      { code: 'ja', label: '日本語' },
+      { code: 'ko', label: '한국어' },
+    ]
+
+    // UI string dictionaries. Keys are the Chinese source strings (the zh
+    // locale renders keys directly); values may contain {0}/{1}… placeholders
+    // that t(key, params) fills in. Full dictionaries: zh / en / ja / ko;
+    // selecting any other UI language falls back exact code → primary subtag →
+    // en.
+    const UI_DICTS = {
+      en: {
+        '界面语言': 'Interface language',
+        '界面显示语言：完整支持 中文 / English / 日本語 / 한국어，其余语言界面自动回退为 English；文档生成语言请在下方「文档内容语言」中单独设置。': 'Interface display language: fully supports 中文 / English / 日本語 / 한국어; any other language falls back to English. The document content language is configured separately in the “Document content language” card below.',
+        '运行时': 'Runtime',
+        '刷新': 'Refresh',
+        '检测中…': 'Detecting…',
+        '未检测（点刷新）': 'Not checked (click Refresh)',
+        '已安装': 'Installed',
+        '未安装': 'Not installed',
+        '版本：': 'Version: ',
+        '有新版本 v{0}': 'Update available: v{0}',
+        '最新': 'Up to date',
+        '可执行：': 'Executable: ',
+        '脚本：': 'Script: ',
+        '安装 openwiki 运行时': 'Install openwiki runtime',
+        '升级到 v{0}': 'Upgrade to v{0}',
+        '已是最新版本': 'Already up to date',
+        '自检（openwiki --help）': 'Self-check (openwiki --help)',
+        '正在安装（npm install -g openwiki）…': 'Installing (npm install -g openwiki)…',
+        '正在升级…': 'Upgrading…',
+        '正在自检…': 'Running self-check…',
+        '模型（DSH 复用 → openwiki）': 'Model (DSH reuse → openwiki)',
+        '读取中…': 'Loading…',
+        '未读取（点刷新）': 'Not loaded (click Refresh)',
+        'DSH 默认模型：': 'DSH default model: ',
+        '映射到 openwiki：': 'Mapped to openwiki: ',
+        '无法自动映射': 'Cannot auto-map',
+        'Key 已解析': 'Key resolved',
+        'Key 未解析': 'Key not resolved',
+        '凭证引用：': 'Credential ref: ',
+        '来源：{0}': 'Source: {0}',
+        '~/.openwiki/.env：': '~/.openwiki/.env: ',
+        '已存在（provider={0}，model={1}）': 'Exists (provider={0}, model={1})',
+        '不存在': 'Does not exist',
+        '同步到 openwiki (.env)': 'Sync to openwiki (.env)',
+        '模型 ID 无效：{0}': 'Invalid model ID: {0}',
+        '保存生成模型': 'Save generation model',
+        '生成模型（可选）：留空跟随 DSH 模型，如 deepseek-chat': 'Generation model (optional): leave empty to follow the DSH model, e.g. deepseek-chat',
+        'openwiki 支持 --modelId 覆盖生成模型：填一个更快的模型（如 deepseek-chat）可显著提升生成速度；留空则跟随 DSH 模型。': 'openwiki supports overriding the generation model via --modelId: a faster model (e.g. deepseek-chat) significantly speeds up generation; leave empty to follow the DSH model.',
+        '复制命令': 'Copy command',
+        '在终端执行后重新点击同步（命令包含 API Key，请勿泄露）': 'Run it in a terminal, then click Sync again (the command contains an API key — do not leak it)',
+        '文档内容语言': 'Document content language',
+        '保存': 'Save',
+        '生成 / 重新生成 / 更新文档时传给 openwiki 的 -l/--language（BCP-47）语言代码。': 'Language code (BCP-47) passed to openwiki via -l/--language when generating / regenerating / updating documents.',
+        '注意：切换语言后「重新生成」会按 openwiki 的语言变更逻辑重写全部文档；下一次运行以设置的文档内容语言为准。': 'Note: after switching the language, “Regenerate” rewrites all documents following openwiki\'s language-change logic; the next run uses the configured document content language.',
+        '侧边栏页面插件（dsh-better-sidebar）': 'Sidebar page plugin (dsh-better-sidebar)',
+        '检测': 'Check',
+        '已连接 dsh-better-sidebar': 'Connected to dsh-better-sidebar',
+        '未检测到 dsh-better-sidebar': 'dsh-better-sidebar not detected',
+        '（openwiki 页面已注册）': '(openwiki page registered)',
+        '（尚未注册）': '(not registered yet)',
+        '已注册侧边页': 'Sidebar page registered',
+        '注册侧边页面到 dsh-better-sidebar': 'Register sidebar page to dsh-better-sidebar',
+        '把 openwiki 知识库注册为 dsh-better-sidebar 的一个侧边栏 Tab（新侧边页面），可直接在侧边栏查看。需要先安装并启用 dsh-better-sidebar 插件。': 'Registers the openwiki knowledge base as a sidebar tab (a new side page) of dsh-better-sidebar so you can view it directly in the sidebar. The dsh-better-sidebar plugin must be installed and enabled first.',
+        'dsh-better-sidebar 地址：https://github.com/omdsh-dev/DSH-better-sidebar（已安装时可从侧边栏文件预览访问）。': 'dsh-better-sidebar repo: https://github.com/omdsh-dev/DSH-better-sidebar (once installed, it is reachable from the sidebar file preview).',
+        '未检测到 dsh-better-sidebar：请先在 DSH 设置/插件中安装并启用该插件，然后刷新页面，再点击「注册侧边页面到 dsh-better-sidebar」。': 'dsh-better-sidebar was not detected: install and enable it in DSH settings/plugins first, then refresh the page and click “Register sidebar page to dsh-better-sidebar”.',
+        '入口显示': 'Show entry',
+        '展示知识库入口 ✔': 'Show knowledge-base entry ✔',
+        '隐藏知识库入口': 'Hide knowledge-base entry',
+        '控制是否在 DSH 主界面左下角「设置」按钮上方显示「openwiki知识库」入口。默认展示，可关闭。': 'Controls whether the “openwiki Knowledge Base” entry is shown above the “Settings” button in the bottom-left of the DSH main UI. Shown by default; can be hidden.',
+        '请先选择一个工作区': 'Please select a workspace first',
+        '自动更新切换失败：{0}': 'Failed to toggle auto-update: {0}',
+        '运行时状态查询失败': 'Failed to query runtime status',
+        '错误：': 'Error: ',
+        '命令执行成功（无输出）。': 'Command executed successfully (no output).',
+        '调用失败：{0}': 'Call failed: {0}',
+        '（经 node 子进程写入，绕过工作区沙箱限制）': '(written via a node subprocess, bypassing the workspace sandbox restriction)',
+        '（经 DSH fs 服务写入）': '(written via the DSH fs service)',
+        '同步成功{0}：\n{1}\n写入：{2}': 'Sync succeeded{0}:\n{1}\nWritten to: {2}',
+        '同步失败：{0}': 'Sync failed: {0}',
+        '未知错误': 'Unknown error',
+        '同步调用失败：{0}': 'Sync call failed: {0}',
+        '部分文件导入失败：{0}': 'Some files failed to import: {0}',
+        '导入失败：{0}': 'Import failed: {0}',
+        '删除失败：{0}': 'Delete failed: {0}',
+        '文档语言设置无效：{0}': 'Invalid document language setting: {0}',
+        '任务启动失败：{0}': 'Failed to start the task: {0}',
+        '保存失败': 'Save failed',
+        '保存失败：{0}': 'Save failed: {0}',
+        '无法识别的语言 "{0}"：openwiki 使用 BCP-47 语言代码（如 zh / en / zh-CN），或常见语言名（如 English、中文）': 'Unrecognized language "{0}": openwiki uses BCP-47 language codes (e.g. zh / en / zh-CN) or common language names (e.g. English, Chinese)',
+        '增量更新': 'Incremental update',
+        '初始化': 'Initial generation',
+        '检测到之前未完成的生成任务（已保存断点），openwiki 将从断点继续（{0} · 语言 {1}{2}）': 'An unfinished generation task was found (checkpoint saved); openwiki will resume from the checkpoint ({0} · language {1}{2})',
+        '暂停失败：{0}': 'Pause failed: {0}',
+        '继续失败：{0}': 'Resume failed: {0}',
+        '已放弃暂停中的任务（openwiki 的 .run.json 保留，下次生成会从断点恢复；如需全新生成请先完成该次任务）': 'The paused task was abandoned (openwiki .run.json is kept; the next generation resumes from the checkpoint. To regenerate from scratch, finish that task first)',
+        '生成失败：{0}': 'Generation failed: {0}',
+        '已暂停': 'Paused',
+        '暂停中…': 'Pausing…',
+        '已取消': 'Cancelled',
+        '继续': 'Resume',
+        '放弃': 'Abandon',
+        '暂停': 'Pause',
+        '取消': 'Cancel',
+        '生成中': 'Generating',
+        '已生成': 'Generated',
+        '未生成': 'Not generated',
+        '加载中…': 'Loading…',
+        '删除': 'Delete',
+        '关闭': 'Close',
+        '目录：{0}': 'Folder: {0}',
+        '根目录': 'Root',
+        '返回': 'Back',
+        '该目录下暂无文档': 'No documents in this folder yet',
+        'Wiki 将在生成完成后显示在这里': 'The Wiki will appear here once generation completes',
+        '渲染中...': 'Rendering…',
+        'Repo Wiki 生成失败，请重试。': 'Repo Wiki generation failed; please retry.',
+        '本文档无二级及以上标题': 'This document has no H2+ headings',
+        '目录': 'Outline',
+        '预览': 'Preview',
+        '代码': 'Code',
+        '章节来源：{0}': 'Section source: {0}',
+        '{0} 条证据{1}': '{0} evidence items{1}',
+        '本地文件': 'Local files',
+        '导入中…': 'Importing…',
+        '📁 上传文件': '📁 Upload files',
+        '支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等二进制请先转为文本再上传': 'Text formats are supported (.md / .txt / .csv / .json …); convert binaries such as PDF / DOCX to text before uploading',
+        '支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等请先转为文本再上传。': 'Text formats are supported (.md / .txt / .csv / .json …); convert formats such as PDF / DOCX to text before uploading.',
+        '保存至 {0}/': 'Saved to {0}/',
+        '暂无文件。上传后点击「生成知识库」。': 'No files yet. Upload files, then click “Generate Knowledge Base”.',
+        '尚未生成知识库，点击右上「生成知识库」': 'Knowledge base not generated yet — click “Generate Knowledge Base” in the top right',
+        '尚未生成 Wiki，点击右上「生成」': 'Wiki not generated yet — click “Generate” in the top right',
+        '知识卡片': 'Knowledge Cards',
+        '知识库': 'Knowledge Base',
+        '忽略文件': 'Ignore file',
+        '自动更新 ✔': 'Auto-update ✔',
+        '自动更新': 'Auto-update',
+        '已开启自动更新（当前工作区）：每 15 秒轮询 git HEAD，检测到新提交自动增量更新 Open Wiki': 'Auto-update is on (current workspace): polls git HEAD every 15 seconds and runs an incremental Open Wiki update on new commits',
+        '开启自动更新（当前工作区）：每 15 秒轮询 git HEAD，检测到新提交自动增量更新 Open Wiki': 'Turn on auto-update (current workspace): polls git HEAD every 15 seconds and runs an incremental Open Wiki update on new commits',
+        '🔍 搜索 Open Wiki': '🔍 Search Open Wiki',
+        '.openwikiignore（gitignore 语法）': '.openwikiignore (gitignore syntax)',
+        'Open Wiki 状态': 'Open Wiki status',
+        '文件数：': 'Files: ',
+        '文件：': 'Files: ',
+        '成功：': 'Succeeded: ',
+        '失败：': 'Failed: ',
+        '更新时间：{0} · {1} · {2} · 模型 {3}': 'Updated: {0} · {1} · {2} · model {3}',
+        '文档位置：项目根目录/{0}': 'Docs location: project root/{0}',
+        '重新生成': 'Regenerate',
+        '根据仓库新增/修改的原始并更新 wiki 文档（任务进行/暂停时由任务卡控制）': 'Updates the wiki documents from sources added/modified in the repo (the task card takes over while a task is running/paused)',
+        '生成你的 Open Wiki': 'Generate your Open Wiki',
+        '生成': 'Generate',
+        'Open Wiki（为您准备）和知识卡片（为 Agent 准备）将基于您的代码库一起生成和更新。': 'Open Wiki (for you) and Knowledge Cards (for agents) are generated and updated together from your codebase.',
+        '知识库状态': 'Knowledge base status',
+        '页面：': 'Pages: ',
+        '输出位置：{0}': 'Output location: {0}',
+        '生成知识库': 'Generate Knowledge Base',
+        '用 openwiki personal 模式分析来源并生成/更新知识库（任务进行/暂停时由任务卡控制）': 'Analyzes the sources with openwiki personal mode to generate/update the knowledge base (the task card takes over while a task is running/paused)',
+        '生成逻辑：每次点击会执行完整分析——AI 读取「上传的本地文件」与「现有知识库」，在保留未变化页面的前提下增量生成/更新知识库页面；内容无变化时不重复记录更新时间。每次生成均消耗模型额度。': 'How it works: every click runs a full analysis — the AI reads the “uploaded local files” and the “existing knowledge base”, incrementally generating/updating pages while keeping unchanged ones; unchanged content does not refresh the update time. Every generation consumes model quota.',
+        '• 新增文件：上传后点击「生成知识库」，AI 会将其整理进知识库（新增或并入对应来源/主题页面）。': '• New files: after uploading, click “Generate Knowledge Base” and the AI organizes them into the knowledge base (new page or merged into the matching source/topic page).',
+        '• 删除文件：已删除的上传文件，知识库中对应的旧内容暂不会自动清除；如需完全重来，可删除 openwiki-kb/wiki/ 下内容后重新生成。': '• Deleted files: content already generated for removed uploads is not purged automatically; to start over, delete the contents under openwiki-kb/wiki/ and regenerate.',
+        '• 与 Open Wiki（代码库）和知识卡片相互独立。': '• Fully independent from Open Wiki (codebase) and Knowledge Cards.',
+        '从左侧知识库树选择页面阅读': 'Select a page from the knowledge-base tree on the left to read',
+        '页面不存在': 'Page not found',
+        'openwiki 知识库': 'openwiki Knowledge Base',
+        'openwiki知识库': 'openwiki Knowledge Base',
+        '最大化/还原': 'Maximize / Restore',
+        '运行时 v{0}{1}': 'Runtime v{0}{1}',
+        '（可升级到 v{0}）': ' (upgrade available: v{0})',
+        '运行时未安装': 'Runtime not installed',
+        '运行时状态未知': 'Runtime status unknown',
+        '拖动缩放': 'Drag to resize',
+        '弹窗': 'Window',
+        '注册失败：{0}': 'Registration failed: {0}',
+        '未检测到 dsh-better-sidebar 插件。请先安装并启用该插件，然后刷新页面。': 'The dsh-better-sidebar plugin was not detected. Install and enable it first, then refresh the page.',
+        '、模型 {0}': ', model {0}',
+        '拖动调整左栏宽度': 'Drag to resize the left column',
+      }, // I18N-EN-END
+      ja: {
+        '界面语言': '表示言語',
+        '界面显示语言：完整支持 中文 / English / 日本語 / 한국어，其余语言界面自动回退为 English；文档生成语言请在下方「文档内容语言」中单独设置。': '画面の表示言語：中文 / English / 日本語 / 한국어 を完全サポート。その他の言語は英語に自動フォールバックします。ドキュメントの生成言語は下の「ドキュメントの内容言語」で個別に設定してください。',
+        '运行时': 'ランタイム',
+        '刷新': '更新',
+        '检测中…': '検出中…',
+        '未检测（点刷新）': '未検出（「更新」をクリック）',
+        '已安装': 'インストール済み',
+        '未安装': '未インストール',
+        '版本：': 'バージョン：',
+        '有新版本 v{0}': '新しいバージョン v{0} があります',
+        '最新': '最新',
+        '可执行：': '実行ファイル：',
+        '脚本：': 'スクリプト：',
+        '安装 openwiki 运行时': 'openwiki ランタイムをインストール',
+        '升级到 v{0}': 'v{0} へアップグレード',
+        '已是最新版本': 'すでに最新バージョンです',
+        '自检（openwiki --help）': 'セルフチェック（openwiki --help）',
+        '正在安装（npm install -g openwiki）…': 'インストール中（npm install -g openwiki）…',
+        '正在升级…': 'アップグレード中…',
+        '正在自检…': 'セルフチェック中…',
+        '模型（DSH 复用 → openwiki）': 'モデル（DSH 再利用 → openwiki）',
+        '读取中…': '読み込み中…',
+        '未读取（点刷新）': '未読み込み（「更新」をクリック）',
+        'DSH 默认模型：': 'DSH デフォルトモデル：',
+        '映射到 openwiki：': 'openwiki へのマッピング：',
+        '无法自动映射': '自動マッピング不可',
+        'Key 已解析': 'Key 解決済み',
+        'Key 未解析': 'Key 未解決',
+        '凭证引用：': '資格情報の参照：',
+        '来源：{0}': '出典：{0}',
+        '~/.openwiki/.env：': '~/.openwiki/.env：',
+        '已存在（provider={0}，model={1}）': '存在（provider={0}、model={1}）',
+        '不存在': '存在しません',
+        '同步到 openwiki (.env)': 'openwiki (.env) へ同期',
+        '模型 ID 无效：{0}': 'モデル ID が無効です：{0}',
+        '保存生成模型': '生成モデルを保存',
+        '生成模型（可选）：留空跟随 DSH 模型，如 deepseek-chat': '生成モデル（任意）：空欄なら DSH モデルに従います。例：deepseek-chat',
+        'openwiki 支持 --modelId 覆盖生成模型：填一个更快的模型（如 deepseek-chat）可显著提升生成速度；留空则跟随 DSH 模型。': 'openwiki は --modelId で生成モデルの上書きに対応：より高速なモデル（例：deepseek-chat）を指定すると生成が大幅に速くなります。空欄なら DSH モデルに従います。',
+        '复制命令': 'コマンドをコピー',
+        '在终端执行后重新点击同步（命令包含 API Key，请勿泄露）': 'ターミナルで実行後に再度「同期」をクリックしてください（コマンドに API Key が含まれるため、漏洩しないよう注意）',
+        '文档内容语言': 'ドキュメントの内容言語',
+        '保存': '保存',
+        '生成 / 重新生成 / 更新文档时传给 openwiki 的 -l/--language（BCP-47）语言代码。': 'ドキュメントの生成・再生成・更新時に openwiki へ渡す -l/--language（BCP-47）の言語コード。',
+        '注意：切换语言后「重新生成」会按 openwiki 的语言变更逻辑重写全部文档；下一次运行以设置的文档内容语言为准。': '注意：言語を変更して「再生成」すると、openwiki の言語変更ロジックに従って全ドキュメントが書き直されます。次回の実行では設定したドキュメントの内容言語が使われます。',
+        '侧边栏页面插件（dsh-better-sidebar）': 'サイドバーページプラグイン（dsh-better-sidebar）',
+        '检测': '検出',
+        '已连接 dsh-better-sidebar': 'dsh-better-sidebar に接続済み',
+        '未检测到 dsh-better-sidebar': 'dsh-better-sidebar を検出できません',
+        '（openwiki 页面已注册）': '（openwiki ページ登録済み）',
+        '（尚未注册）': '（未登録）',
+        '已注册侧边页': 'サイドバーページを登録済み',
+        '注册侧边页面到 dsh-better-sidebar': 'dsh-better-sidebar にサイドバーページを登録',
+        '把 openwiki 知识库注册为 dsh-better-sidebar 的一个侧边栏 Tab（新侧边页面），可直接在侧边栏查看。需要先安装并启用 dsh-better-sidebar 插件。': 'openwiki ナレッジベースを dsh-better-sidebar のサイドバータブ（新しいサイドページ）として登録し、サイドバーで直接表示できます。事前に dsh-better-sidebar プラグインのインストールと有効化が必要です。',
+        'dsh-better-sidebar 地址：https://github.com/omdsh-dev/DSH-better-sidebar（已安装时可从侧边栏文件预览访问）。': 'dsh-better-sidebar のリポジトリ：https://github.com/omdsh-dev/DSH-better-sidebar（インストール済みならサイドバーのファイルプレビューからアクセスできます）。',
+        '未检测到 dsh-better-sidebar：请先在 DSH 设置/插件中安装并启用该插件，然后刷新页面，再点击「注册侧边页面到 dsh-better-sidebar」。': 'dsh-better-sidebar が検出されません：DSH 設定/プラグインで先にこのプラグインをインストールして有効化し、ページを更新してから「dsh-better-sidebar にサイドバーページを登録」をクリックしてください。',
+        '入口显示': 'エントリ表示',
+        '展示知识库入口 ✔': 'ナレッジベースエントリを表示 ✔',
+        '隐藏知识库入口': 'ナレッジベースエントリを非表示',
+        '控制是否在 DSH 主界面左下角「设置」按钮上方显示「openwiki知识库」入口。默认展示，可关闭。': 'DSH メイン画面の左下「設定」ボタンの上に「openwiki ナレッジベース」エントリを表示するかどうかを制御します。初期状態は表示で、非表示にできます。',
+        '请先选择一个工作区': '先にワークスペースを選択してください',
+        '自动更新切换失败：{0}': '自動更新の切り替えに失敗：{0}',
+        '运行时状态查询失败': 'ランタイム状態の取得に失敗しました',
+        '错误：': 'エラー：',
+        '命令执行成功（无输出）。': 'コマンドは正常に実行されました（出力なし）。',
+        '调用失败：{0}': '呼び出しに失敗：{0}',
+        '（经 node 子进程写入，绕过工作区沙箱限制）': '（node サブプロセスで書き込み、ワークスペースのサンドボックス制限を回避）',
+        '（经 DSH fs 服务写入）': '（DSH fs サービスで書き込み）',
+        '同步成功{0}：\n{1}\n写入：{2}': '同期成功{0}：\n{1}\n書き込み先：{2}',
+        '同步失败：{0}': '同期に失敗：{0}',
+        '未知错误': '不明なエラー',
+        '同步调用失败：{0}': '同期呼び出しに失敗：{0}',
+        '部分文件导入失败：{0}': '一部のファイルのインポートに失敗：{0}',
+        '导入失败：{0}': 'インポートに失敗：{0}',
+        '删除失败：{0}': '削除に失敗：{0}',
+        '文档语言设置无效：{0}': 'ドキュメント言語の設定が無効です：{0}',
+        '任务启动失败：{0}': 'タスクの起動に失敗：{0}',
+        '保存失败': '保存に失敗しました',
+        '保存失败：{0}': '保存に失敗：{0}',
+        '无法识别的语言 "{0}"：openwiki 使用 BCP-47 语言代码（如 zh / en / zh-CN），或常见语言名（如 English、中文）': '認識できない言語「{0}」：openwiki は BCP-47 言語コード（例：zh / en / zh-CN）または一般的な言語名（例：English、Chinese）を使用します',
+        '增量更新': '増分更新',
+        '初始化': '初期生成',
+        '检测到之前未完成的生成任务（已保存断点），openwiki 将从断点继续（{0} · 语言 {1}{2}）': '未完了の生成タスクを検出しました（チェックポイント保存済み）。openwiki はチェックポイントから再開します（{0}・言語 {1}{2}）',
+        '暂停失败：{0}': '一時停止に失敗：{0}',
+        '继续失败：{0}': '再開に失敗：{0}',
+        '已放弃暂停中的任务（openwiki 的 .run.json 保留，下次生成会从断点恢复；如需全新生成请先完成该次任务）': '一時停止中のタスクを破棄しました（openwiki の .run.json は保持され、次回の生成はチェックポイントから再開します。完全に作り直す場合は先にそのタスクを完了してください）',
+        '生成失败：{0}': '生成に失敗：{0}',
+        '已暂停': '一時停止中',
+        '暂停中…': '一時停止中…',
+        '已取消': 'キャンセル済み',
+        '继续': '再開',
+        '放弃': '破棄',
+        '暂停': '一時停止',
+        '取消': 'キャンセル',
+        '生成中': '生成中',
+        '已生成': '生成済み',
+        '未生成': '未生成',
+        '加载中…': '読み込み中…',
+        '删除': '削除',
+        '关闭': '閉じる',
+        '目录：{0}': 'フォルダ：{0}',
+        '根目录': 'ルート',
+        '返回': '戻る',
+        '该目录下暂无文档': 'このフォルダにはまだドキュメントがありません',
+        'Wiki 将在生成完成后显示在这里': 'Wiki は生成完了後にここに表示されます',
+        '渲染中...': 'レンダリング中…',
+        'Repo Wiki 生成失败，请重试。': 'Repo Wiki の生成に失敗しました。もう一度お試しください。',
+        '本文档无二级及以上标题': 'このドキュメントには H2 以上の見出しがありません',
+        '目录': '目次',
+        '预览': 'プレビュー',
+        '代码': 'コード',
+        '章节来源：{0}': 'セクションの出典：{0}',
+        '{0} 条证据{1}': 'エビデンス {0} 件{1}',
+        '本地文件': 'ローカルファイル',
+        '导入中…': 'インポート中…',
+        '📁 上传文件': '📁 ファイルをアップロード',
+        '支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等二进制请先转为文本再上传': 'テキスト形式に対応（.md / .txt / .csv / .json など）。PDF / DOCX などのバイナリは先にテキストへ変換してからアップロードしてください',
+        '支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等请先转为文本再上传。': 'テキスト形式に対応（.md / .txt / .csv / .json など）。PDF / DOCX などは先にテキストへ変換してからアップロードしてください。',
+        '保存至 {0}/': '保存先：{0}/',
+        '暂无文件。上传后点击「生成知识库」。': 'ファイルはまだありません。アップロード後に「ナレッジベースを生成」をクリックしてください。',
+        '尚未生成知识库，点击右上「生成知识库」': 'ナレッジベースは未生成です。右上の「ナレッジベースを生成」をクリックしてください',
+        '尚未生成 Wiki，点击右上「生成」': 'Wiki は未生成です。右上の「生成」をクリックしてください',
+        '知识卡片': 'ナレッジカード',
+        '知识库': 'ナレッジベース',
+        '忽略文件': '無視ファイル',
+        '自动更新 ✔': '自動更新 ✔',
+        '自动更新': '自動更新',
+        '已开启自动更新（当前工作区）：每 15 秒轮询 git HEAD，检测到新提交自动增量更新 Open Wiki': '自動更新オン（現在のワークスペース）：15 秒ごとに git HEAD をポーリングし、新しいコミットを検出すると Open Wiki を自動的に増分更新します',
+        '开启自动更新（当前工作区）：每 15 秒轮询 git HEAD，检测到新提交自动增量更新 Open Wiki': '自動更新をオン（現在のワークスペース）：15 秒ごとに git HEAD をポーリングし、新しいコミットを検出すると Open Wiki を自動的に増分更新します',
+        '🔍 搜索 Open Wiki': '🔍 Open Wiki を検索',
+        '.openwikiignore（gitignore 语法）': '.openwikiignore（gitignore 構文）',
+        'Open Wiki 状态': 'Open Wiki の状態',
+        '文件数：': 'ファイル数：',
+        '文件：': 'ファイル：',
+        '成功：': '成功：',
+        '失败：': '失敗：',
+        '更新时间：{0} · {1} · {2} · 模型 {3}': '更新日時：{0} · {1} · {2} · モデル {3}',
+        '文档位置：项目根目录/{0}': 'ドキュメントの場所：プロジェクトルート/{0}',
+        '重新生成': '再生成',
+        '根据仓库新增/修改的原始并更新 wiki 文档（任务进行/暂停时由任务卡控制）': 'リポジトリで追加/変更されたソースをもとに wiki ドキュメントを更新します（タスク実行中/一時停止中はタスクカードが操作を受け持ちます）',
+        '生成你的 Open Wiki': 'Open Wiki を生成する',
+        '生成': '生成',
+        'Open Wiki（为您准备）和知识卡片（为 Agent 准备）将基于您的代码库一起生成和更新。': 'Open Wiki（あなた向け）とナレッジカード（Agent 向け）は、コードベースからまとめて生成・更新されます。',
+        '知识库状态': 'ナレッジベースの状態',
+        '页面：': 'ページ：',
+        '输出位置：{0}': '出力先：{0}',
+        '生成知识库': 'ナレッジベースを生成',
+        '用 openwiki personal 模式分析来源并生成/更新知识库（任务进行/暂停时由任务卡控制）': 'openwiki personal モードでソースを分析し、ナレッジベースを生成/更新します（タスク実行中/一時停止中はタスクカードが操作を受け持ちます）',
+        '生成逻辑：每次点击会执行完整分析——AI 读取「上传的本地文件」与「现有知识库」，在保留未变化页面的前提下增量生成/更新知识库页面；内容无变化时不重复记录更新时间。每次生成均消耗模型额度。': '仕組み：クリックのたびに完全な分析を実行します——AI は「アップロードしたローカルファイル」と「既存のナレッジベース」を読み取り、変更のないページを維持したままナレッジベースのページを増分的に生成/更新します。内容に変化がなければ更新時刻は更新されません。生成のたびにモデル利用枠を消費します。',
+        '• 新增文件：上传后点击「生成知识库」，AI 会将其整理进知识库（新增或并入对应来源/主题页面）。': '• 新規ファイル：アップロード後に「ナレッジベースを生成」をクリックすると、AI がナレッジベースに整理します（新規ページ化、または対応するソース/トピックページへ統合）。',
+        '• 删除文件：已删除的上传文件，知识库中对应的旧内容暂不会自动清除；如需完全重来，可删除 openwiki-kb/wiki/ 下内容后重新生成。': '• 削除したファイル：アップロードを削除してもナレッジベース内の対応する旧内容は自動では消去されません。完全に作り直す場合は openwiki-kb/wiki/ の内容を削除して再生成してください。',
+        '• 与 Open Wiki（代码库）和知识卡片相互独立。': '• Open Wiki（コードベース）やナレッジカードとは独立しています。',
+        '从左侧知识库树选择页面阅读': '左のナレッジベースツリーからページを選択して閲覧',
+        '页面不存在': 'ページが存在しません',
+        'openwiki 知识库': 'openwiki ナレッジベース',
+        'openwiki知识库': 'openwiki ナレッジベース',
+        '最大化/还原': '最大化 / 元に戻す',
+        '运行时 v{0}{1}': 'ランタイム v{0}{1}',
+        '（可升级到 v{0}）': '（v{0} にアップグレード可能）',
+        '运行时未安装': 'ランタイム未インストール',
+        '运行时状态未知': 'ランタイムの状態が不明です',
+        '拖动缩放': 'ドラッグでリサイズ',
+        '弹窗': 'ウィンドウ',
+        '注册失败：{0}': '登録に失敗：{0}',
+        '未检测到 dsh-better-sidebar 插件。请先安装并启用该插件，然后刷新页面。': 'dsh-better-sidebar プラグインが検出されません。先にこのプラグインをインストールして有効化し、ページを更新してください。',
+        '、模型 {0}': '・モデル {0}',
+        '拖动调整左栏宽度': 'ドラッグで左欄の幅を調整',
+      }, // I18N-JA-END
+      ko: {
+        '界面语言': '인터페이스 언어',
+        '界面显示语言：完整支持 中文 / English / 日本語 / 한국어，其余语言界面自动回退为 English；文档生成语言请在下方「文档内容语言」中单独设置。': '화면 표시 언어: 中文 / English / 日本語 / 한국어 완전 지원. 그 외 언어는 영어로 자동 폴백됩니다. 문서 생성 언어는 아래 “문서 내용 언어” 카드에서 별도로 설정하세요.',
+        '运行时': '런타임',
+        '刷新': '새로고침',
+        '检测中…': '확인 중…',
+        '未检测（点刷新）': '미확인(새로고침 클릭)',
+        '已安装': '설치됨',
+        '未安装': '미설치',
+        '版本：': '버전: ',
+        '有新版本 v{0}': '새 버전 v{0} 사용 가능',
+        '最新': '최신',
+        '可执行：': '실행 파일: ',
+        '脚本：': '스크립트: ',
+        '安装 openwiki 运行时': 'openwiki 런타임 설치',
+        '升级到 v{0}': 'v{0}(으)로 업그레이드',
+        '已是最新版本': '이미 최신 버전입니다',
+        '自检（openwiki --help）': '자가 점검(openwiki --help)',
+        '正在安装（npm install -g openwiki）…': '설치 중(npm install -g openwiki)…',
+        '正在升级…': '업그레이드 중…',
+        '正在自检…': '자가 점검 중…',
+       '模型（DSH 复用 → openwiki）': '모델(DSH 재사용 → openwiki)',
+        '读取中…': '불러오는 중…',
+        '未读取（点刷新）': '로드 안 됨(새로고침 클릭)',
+        'DSH 默认模型：': 'DSH 기본 모델: ',
+        '映射到 openwiki：': 'openwiki 매핑: ',
+        '无法自动映射': '자동 매핑 불가',
+        'Key 已解析': 'Key 확인됨',
+        'Key 未解析': 'Key 미확인',
+        '凭证引用：': '자격 증명 참조: ',
+        '来源：{0}': '출처: {0}',
+        '~/.openwiki/.env：': '~/.openwiki/.env: ',
+        '已存在（provider={0}，model={1}）': '존재함(provider={0}, model={1})',
+        '不存在': '존재하지 않음',
+        '同步到 openwiki (.env)': 'openwiki(.env)에 동기화',
+        '模型 ID 无效：{0}': '모델 ID가 잘못되었습니다: {0}',
+        '保存生成模型': '생성 모델 저장',
+        '生成模型（可选）：留空跟随 DSH 模型，如 deepseek-chat': '생성 모델(선택): 비워 두면 DSH 모델을 따릅니다. 예: deepseek-chat',
+        'openwiki 支持 --modelId 覆盖生成模型：填一个更快的模型（如 deepseek-chat）可显著提升生成速度；留空则跟随 DSH 模型。': 'openwiki는 --modelId로 생성 모델을 재정의할 수 있습니다: 더 빠른 모델(예: deepseek-chat)을 지정하면 생성 속도가 크게 빨라집니다. 비워 두면 DSH 모델을 따릅니다.',
+        '复制命令': '명령 복사',
+        '在终端执行后重新点击同步（命令包含 API Key，请勿泄露）': '터미널에서 실행한 후 다시 동기화를 클릭하세요(명령에 API Key가 포함되어 있으니 유출하지 마세요)',
+        '文档内容语言': '문서 내용 언어',
+        '保存': '저장',
+        '生成 / 重新生成 / 更新文档时传给 openwiki 的 -l/--language（BCP-47）语言代码。': '문서 생성/재생성/업데이트 시 openwiki에 전달되는 -l/--language(BCP-47) 언어 코드.',
+        '注意：切换语言后「重新生成」会按 openwiki 的语言变更逻辑重写全部文档；下一次运行以设置的文档内容语言为准。': '참고: 언어를 변경한 후 "다시 생성"을 실행하면 openwiki의 언어 변경 로직에 따라 모든 문서가 다시 작성됩니다. 다음 실행부터는 설정된 문서 내용 언어가 적용됩니다.',
+        '侧边栏页面插件（dsh-better-sidebar）': '사이드바 페이지 플러그인(dsh-better-sidebar)',
+        '检测': '감지',
+        '已连接 dsh-better-sidebar': 'dsh-better-sidebar 연결됨',
+        '未检测到 dsh-better-sidebar': 'dsh-better-sidebar를 감지하지 못함',
+        '（openwiki 页面已注册）': '(openwiki 페이지 등록됨)',
+        '（尚未注册）': '(아직 등록되지 않음)',
+        '已注册侧边页': '사이드바 페이지 등록됨',
+        '注册侧边页面到 dsh-better-sidebar': 'dsh-better-sidebar에 사이드바 페이지 등록',
+        '把 openwiki 知识库注册为 dsh-better-sidebar 的一个侧边栏 Tab（新侧边页面），可直接在侧边栏查看。需要先安装并启用 dsh-better-sidebar 插件。': 'openwiki 지식 베이스를 dsh-better-sidebar의 사이드바 탭(새 사이드 페이지)으로 등록하여 사이드바에서 바로 볼 수 있습니다. dsh-better-sidebar 플러그인을 먼저 설치하고 활성화해야 합니다.',
+        'dsh-better-sidebar 地址：https://github.com/omdsh-dev/DSH-better-sidebar（已安装时可从侧边栏文件预览访问）。': 'dsh-better-sidebar 저장소: https://github.com/omdsh-dev/DSH-better-sidebar(설치되어 있으면 사이드바 파일 미리보기에서 접근 가능).',
+        '未检测到 dsh-better-sidebar：请先在 DSH 设置/插件中安装并启用该插件，然后刷新页面，再点击「注册侧边页面到 dsh-better-sidebar」。': 'dsh-better-sidebar가 감지되지 않았습니다: 먼저 DSH 설정/플러그인에서 해당 플러그인을 설치·활성화한 다음 페이지를 새로고침하고 “dsh-better-sidebar에 사이드바 페이지 등록”을 클릭하세요.',
+        '入口显示': '진입 표시',
+        '展示知识库入口 ✔': '지식 베이스 진입 표시 ✔',
+        '隐藏知识库入口': '지식 베이스 진입 숨기기',
+        '控制是否在 DSH 主界面左下角「设置」按钮上方显示「openwiki知识库」入口。默认展示，可关闭。': 'DSH 메인 화면 왼쪽 하단 “설정” 버튼 위에 “openwiki 지식 베이스” 진입을 표시할지 제어합니다. 기본은 표시이며 끌 수 있습니다.',
+        '请先选择一个工作区': '먼저 워크스페이스를 선택하세요',
+        '自动更新切换失败：{0}': '자동 업데이트 전환 실패: {0}',
+        '运行时状态查询失败': '런타임 상태 조회 실패',
+        '错误：': '오류: ',
+        '命令执行成功（无输出）。': '명령이 성공적으로 실행되었습니다(출력 없음).',
+        '调用失败：{0}': '호출 실패: {0}',
+        '（经 node 子进程写入，绕过工作区沙箱限制）': '(node 하위 프로세스로 기록, 워크스페이스 샌드박스 제한 우회)',
+        '（经 DSH fs 服务写入）': '(DSH fs 서비스로 기록)',
+        '同步成功{0}：\n{1}\n写入：{2}': '동기화 성공{0}:\n{1}\n기록 위치: {2}',
+        '同步失败：{0}': '동기화 실패: {0}',
+        '未知错误': '알 수 없는 오류',
+        '同步调用失败：{0}': '동기화 호출 실패: {0}',
+        '部分文件导入失败：{0}': '일부 파일 가져오기 실패: {0}',
+        '导入失败：{0}': '가져오기 실패: {0}',
+        '删除失败：{0}': '삭제 실패: {0}',
+        '文档语言设置无效：{0}': '문서 언어 설정이 잘못되었습니다: {0}',
+        '任务启动失败：{0}': '작업 시작 실패: {0}',
+        '保存失败': '저장 실패',
+        '保存失败：{0}': '저장 실패: {0}',
+        '无法识别的语言 "{0}"：openwiki 使用 BCP-47 语言代码（如 zh / en / zh-CN），或常见语言名（如 English、中文）': '인식할 수 없는 언어 "{0}": openwiki는 BCP-47 언어 코드(예: zh / en / zh-CN) 또는 일반적인 언어 이름(예: English, Chinese)을 사용합니다',
+        '增量更新': '증분 업데이트',
+        '初始化': '초기 생성',
+        '检测到之前未完成的生成任务（已保存断点），openwiki 将从断点继续（{0} · 语言 {1}{2}）': '완료되지 않은 생성 작업이 감지되었습니다(체크포인트 저장됨). openwiki가 체크포인트에서 재개합니다({0} · 언어 {1}{2})',
+        '暂停失败：{0}': '일시 중지 실패: {0}',
+        '继续失败：{0}': '재개 실패: {0}',
+        '已放弃暂停中的任务（openwiki 的 .run.json 保留，下次生成会从断点恢复；如需全新生成请先完成该次任务）': '일시 중지된 작업을 포기했습니다(openwiki .run.json은 유지되며 다음 생성 시 체크포인트에서 재개됩니다. 완전히 새로 생성하려면 먼저 해당 작업을 완료하세요)',
+        '生成失败：{0}': '생성 실패: {0}',
+        '已暂停': '일시 중지됨',
+        '暂停中…': '일시 중지 중…',
+        '已取消': '취소됨',
+        '继续': '재개',
+        '放弃': '포기',
+        '暂停': '일시 중지',
+        '取消': '취소',
+        '生成中': '생성 중',
+        '已生成': '생성됨',
+        '未生成': '미생성',
+        '加载中…': '불러오는 중…',
+        '删除': '삭제',
+        '关闭': '닫기',
+        '目录：{0}': '폴더: {0}',
+        '根目录': '루트',
+        '返回': '돌아가기',
+        '该目录下暂无文档': '이 폴더에는 아직 문서가 없습니다',
+        'Wiki 将在生成完成后显示在这里': 'Wiki는 생성이 완료되면 여기에 표시됩니다',
+        '渲染中...': '렌더링 중…',
+        'Repo Wiki 生成失败，请重试。': 'Repo Wiki 생성에 실패했습니다. 다시 시도하세요.',
+        '本文档无二级及以上标题': '이 문서에는 H2 이상 제목이 없습니다',
+        '目录': '목차',
+        '预览': '미리보기',
+        '代码': '코드',
+        '章节来源：{0}': '섹션 출처: {0}',
+        '{0} 条证据{1}': '증거 {0}건{1}',
+        '本地文件': '로컬 파일',
+        '导入中…': '가져오는 중…',
+        '📁 上传文件': '📁 파일 업로드',
+        '支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等二进制请先转为文本再上传': '텍스트 형식 지원(.md / .txt / .csv / .json 등). PDF / DOCX 등 바이너리는 먼저 텍스트로 변환한 후 업로드하세요',
+        '支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等请先转为文本再上传。': '텍스트 형식 지원(.md / .txt / .csv / .json 등). PDF / DOCX 등은 먼저 텍스트로 변환한 후 업로드하세요.',
+        '保存至 {0}/': '저장 위치: {0}/',
+        '暂无文件。上传后点击「生成知识库」。': '파일이 아직 없습니다. 업로드 후 “지식 베이스 생성”을 클릭하세요.',
+        '尚未生成知识库，点击右上「生成知识库」': '지식 베이스가 아직 생성되지 않았습니다 — 오른쪽 위 “지식 베이스 생성”을 클릭하세요',
+        '尚未生成 Wiki，点击右上「生成」': 'Wiki가 아직 생성되지 않았습니다 — 오른쪽 위 “생성”을 클릭하세요',
+        '知识卡片': '지식 카드',
+        '知识库': '지식 베이스',
+        '忽略文件': '무시 파일',
+        '自动更新 ✔': '자동 업데이트 ✔',
+        '自动更新': '자동 업데이트',
+        '已开启自动更新（当前工作区）：每 15 秒轮询 git HEAD，检测到新提交自动增量更新 Open Wiki': '자동 업데이트 켜짐(현재 워크스페이스): 15초마다 git HEAD를 폴링하고 새 커밋이 감지되면 Open Wiki를 자동으로 증분 업데이트합니다',
+        '开启自动更新（当前工作区）：每 15 秒轮询 git HEAD，检测到新提交自动增量更新 Open Wiki': '자동 업데이트 켜기(현재 워크스페이스): 15초마다 git HEAD를 폴링하고 새 커밋이 감지되면 Open Wiki를 자동으로 증분 업데이트합니다',
+        '🔍 搜索 Open Wiki': '🔍 Open Wiki 검색',
+        '.openwikiignore（gitignore 语法）': '.openwikiignore(gitignore 구문)',
+        'Open Wiki 状态': 'Open Wiki 상태',
+        '文件数：': '파일 수: ',
+        '文件：': '파일: ',
+        '成功：': '성공: ',
+        '失败：': '실패: ',
+        '更新时间：{0} · {1} · {2} · 模型 {3}': '업데이트 시각: {0} · {1} · {2} · 모델 {3}',
+        '文档位置：项目根目录/{0}': '문서 위치: 프로젝트 루트/{0}',
+        '重新生成': '다시 생성',
+        '根据仓库新增/修改的原始并更新 wiki 文档（任务进行/暂停时由任务卡控制）': '저장소에서 추가/수정된 소스를 기반으로 wiki 문서를 업데이트합니다(작업 실행/일시 중지 중에는 작업 카드가 제어)',
+        '生成你的 Open Wiki': 'Open Wiki 생성',
+        '生成': '생성',
+        'Open Wiki（为您准备）和知识卡片（为 Agent 准备）将基于您的代码库一起生成和更新。': 'Open Wiki(사용자용)와 지식 카드(에이전트용)는 코드베이스를 기반으로 함께 생성·업데이트됩니다.',
+        '知识库状态': '지식 베이스 상태',
+        '页面：': '페이지: ',
+        '输出位置：{0}': '출력 위치: {0}',
+        '生成知识库': '지식 베이스 생성',
+        '用 openwiki personal 模式分析来源并生成/更新知识库（任务进行/暂停时由任务卡控制）': 'openwiki personal 모드로 소스를 분석하여 지식 베이스를 생성/업데이트합니다(작업 실행/일시 중지 중에는 작업 카드가 제어)',
+        '生成逻辑：每次点击会执行完整分析——AI 读取「上传的本地文件」与「现有知识库」，在保留未变化页面的前提下增量生成/更新知识库页面；内容无变化时不重复记录更新时间。每次生成均消耗模型额度。': '작동 방식: 클릭할 때마다 전체 분석이 실행됩니다 — AI가 “업로드한 로컬 파일”과 “기존 지식 베이스”를 읽고, 변경되지 않은 페이지는 유지하면서 지식 베이스 페이지를 증분 생성/업데이트합니다. 내용에 변화가 없으면 업데이트 시각을 갱신하지 않습니다. 생성할 때마다 모델 할당량을 사용합니다.',
+        '• 新增文件：上传后点击「生成知识库」，AI 会将其整理进知识库（新增或并入对应来源/主题页面）。': '• 새 파일: 업로드 후 “지식 베이스 생성”을 클릭하면 AI가 지식 베이스에 정리합니다(새 페이지로 추가하거나 해당 소스/주제 페이지에 통합).',
+        '• 删除文件：已删除的上传文件，知识库中对应的旧内容暂不会自动清除；如需完全重来，可删除 openwiki-kb/wiki/ 下内容后重新生成。': '• 삭제된 파일: 업로드를 삭제해도 지식 베이스의 기존 내용은 자동으로 지워지지 않습니다. 완전히 새로 하려면 openwiki-kb/wiki/ 내용을 삭제한 후 다시 생성하세요.',
+        '• 与 Open Wiki（代码库）和知识卡片相互独立。': '• Open Wiki(코드베이스) 및 지식 카드와 완전히 독립적입니다.',
+        '从左侧知识库树选择页面阅读': '왼쪽 지식 베이스 트리에서 페이지를 선택해 읽으세요',
+        '页面不存在': '페이지가 존재하지 않습니다',
+        'openwiki 知识库': 'openwiki 지식 베이스',
+        'openwiki知识库': 'openwiki 지식 베이스',
+        '最大化/还原': '최대화/복원',
+        '运行时 v{0}{1}': '런타임 v{0}{1}',
+        '（可升级到 v{0}）': '(v{0}(으)로 업그레이드 가능)',
+        '运行时未安装': '런타임 미설치',
+        '运行时状态未知': '런타임 상태를 알 수 없음',
+        '拖动缩放': '드래그하여 크기 조정',
+        '弹窗': '창',
+        '注册失败：{0}': '등록 실패: {0}',
+        '未检测到 dsh-better-sidebar 插件。请先安装并启用该插件，然后刷新页面。': 'dsh-better-sidebar 플러그인이 감지되지 않았습니다. 먼저 설치·활성화한 후 페이지를 새로고침하세요.',
+        '、模型 {0}': ', 모델 {0}',
+        '拖动调整左栏宽度': '드래그하여 왼쪽 열 너비 조정',
+      }, // I18N-KO-END
+    }
+
+    // ------------------------------------------------------------------
     // Closure store
     // ------------------------------------------------------------------
     const createKbStore = () => {
@@ -70,6 +596,9 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         showEntry: true,
         // Document content language passed to openwiki (-l/--language, BCP-47).
         language: 'zh',
+        // UI display language (interface language select). Independent of
+        // `language` (the document content language); persisted in localStorage.
+        uiLang: 'zh',
         // Auto-update watcher state (host polls git HEAD and regenerates).
         autoUpdate: { enabled: false },
       }
@@ -92,11 +621,53 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
     try {
       const stored = window.localStorage.getItem('dsh-openwiki:showEntry')
       if (stored === '0') kb.set({ showEntry: false })
+      const ui = window.localStorage.getItem('dsh-openwiki:uiLang')
+      if (ui && LANGS.some((l) => l.code === ui)) kb.set({ uiLang: ui })
       const lang = window.localStorage.getItem('dsh-openwiki:language')
       if (lang) kb.set({ language: lang })
       const mdl = window.localStorage.getItem('dsh-openwiki:model')
       if (mdl) kb.set({ genModel: mdl })
     } catch { /* localStorage unavailable */ }
+
+    // Resolve the selected UI-language code to a locale with a shipped
+    // dictionary: exact code match → primary-subtag match → en. zh itself has
+    // no dictionary entry because Chinese keys ARE the zh texts.
+    const resolveUiLocale = (code) => {
+      const c = String(code || '').trim()
+      if (c === 'zh' || c === 'zh-TW') return 'zh'
+      if (UI_DICTS[c]) return c
+      const primary = c.split('-')[0].toLowerCase()
+      if (primary === 'zh') return 'zh'
+      if (UI_DICTS[primary]) return primary
+      return 'en'
+    }
+
+    // Translate a UI string. Keys are the Chinese source strings; {0}/{1}…
+    // placeholders are filled from `params` (array or single value). Lookup
+    // order: current locale dictionary → en → the key itself (zh source).
+    const t = (key, params) => {
+      const want = String(key)
+      const pick = (d) => (d && Object.prototype.hasOwnProperty.call(d, want) ? String(d[want]) : null)
+      const locale = resolveUiLocale(kb.get().uiLang)
+      let out = locale === 'zh' ? want : (pick(UI_DICTS[locale]) ?? pick(UI_DICTS.en) ?? want)
+      if (params !== undefined && params !== null) {
+        const ps = Array.isArray(params) ? params : [params]
+        out = out.replace(/\{(\d+)\}/gu, (m, i) => (ps[Number(i)] !== undefined ? String(ps[Number(i)]) : m))
+      }
+      return out
+    }
+
+    // Best-effort translation for a mostly host-produced message (error texts,
+    // job output …): only whole-message dictionary hits are translated, so any
+    // unknown/unpredictable content passes through untouched.
+    const msg = (text) => {
+      const s = String(text ?? '')
+      if (!s) return s
+      const locale = resolveUiLocale(kb.get().uiLang)
+      if (locale === 'zh') return s
+      const hit = (d) => (d && Object.prototype.hasOwnProperty.call(d, s) ? String(d[s]) : null)
+      return hit(UI_DICTS[locale]) ?? hit(UI_DICTS.en) ?? s
+    }
 
     const useKb = () => {
       const [snap, setSnap] = React.useState(kb.get())
@@ -134,14 +705,14 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
 
     const toggleAutoUpdate = () => {
       const workspaceId = kb.get().selected
-      if (!workspaceId) { kb.set({ error: '请先选择一个工作区' }); return }
+      if (!workspaceId) { kb.set({ error: t('请先选择一个工作区') }); return }
       const nextEnabled = !kb.get().autoUpdate.enabled
       call('openwiki/autoupdate/set', { workspaceId, enabled: nextEnabled })
         .then((res) => {
-          if (res && res.ok === false) kb.set({ error: res.error })
+          if (res && res.ok === false) kb.set({ error: msg(res.error) })
           else kb.set({ autoUpdate: { enabled: nextEnabled, workspaceId } })
         })
-        .catch((err) => kb.set({ error: `自动更新切换失败：${String(err && err.message ? err.message : err)}` }))
+        .catch((err) => kb.set({ error: t('自动更新切换失败：{0}', String(err && err.message ? err.message : err)) }))
     }
 
 
@@ -154,7 +725,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
           const payload = res && typeof res === 'object' ? res : {}
           kb.set({
             runtime: payload.ok === false
-              ? { installed: false, error: payload.error || '运行时状态查询失败' }
+              ? { installed: false, error: payload.error || t('运行时状态查询失败') }
               : payload,
             busy: false,
           })
@@ -182,18 +753,18 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
           refreshRuntime()
           refreshModel()
           if (res && typeof res === 'object' && res.ok === false) {
-            kb.set({ lastOutput: `错误：${res.error}\n${res.output ?? ''}`, busy: false, action: null })
+            kb.set({ lastOutput: `${t('错误：')}${msg(res.error)}\n${res.output ?? ''}`, busy: false, action: null })
           } else {
             const out = (res && res.output ? res.output : '') || (res && res.error ? res.error : '')
             // Always leave a visible result so a probe/check that ran clean (no
             // stdout) still gives feedback instead of silently doing nothing.
-            kb.set({ lastOutput: out || '命令执行成功（无输出）。', busy: false, action: null })
+            kb.set({ lastOutput: out || t('命令执行成功（无输出）。'), busy: false, action: null })
           }
         })
         .catch((err) => kb.set({
           busy: false,
           action: null,
-          lastOutput: `调用失败：${String(err && err.message ? err.message : err)}`,
+          lastOutput: t('调用失败：{0}', String(err && err.message ? err.message : err)),
         }))
     }
 
@@ -208,16 +779,16 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
           const payload = res && typeof res === 'object' ? res : {}
           if (payload.ok) {
             const via = payload.via === 'node'
-              ? '（经 node 子进程写入，绕过工作区沙箱限制）'
-              : '（经 DSH fs 服务写入）'
+              ? t('（经 node 子进程写入，绕过工作区沙箱限制）')
+              : t('（经 DSH fs 服务写入）')
             kb.set({
-              modelOutput: `同步成功${via}：\n${(payload.applied ?? []).join('、')}\n写入：${payload.envPath ?? '~/.openwiki/.env'}`,
+              modelOutput: t('同步成功{0}：\n{1}\n写入：{2}', [via, (payload.applied ?? []).join('、'), payload.envPath ?? '~/.openwiki/.env']),
               modelCommand: null,
               busy: false,
             })
           } else {
             kb.set({
-              modelOutput: `同步失败：${payload.error ?? '未知错误'}`,
+              modelOutput: t('同步失败：{0}', payload.error ?? t('未知错误')),
               modelCommand: payload.command ?? null,
               busy: false,
             })
@@ -226,7 +797,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         })
         .catch((err) => kb.set({
           busy: false,
-          modelOutput: `同步调用失败：${String(err && err.message ? err.message : err)}`,
+          modelOutput: t('同步调用失败：{0}', String(err && err.message ? err.message : err)),
         }))
     }
 
@@ -341,22 +912,22 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
           kb.set({
             importing: false,
             error: failed.length > 0
-              ? `部分文件导入失败：${failed.map((f) => `${f.name}（${f.error}）`).join('；')}`
+              ? t('部分文件导入失败：{0}', failed.map((f) => `${f.name}（${msg(f.error)}）`).join('；'))
               : null,
           })
           refreshKb(workspaceId)
         })
-        .catch((err) => kb.set({ importing: false, error: `导入失败：${String(err && err.message ? err.message : err)}` }))
+        .catch((err) => kb.set({ importing: false, error: t('导入失败：{0}', String(err && err.message ? err.message : err)) }))
     }
 
     const deleteKbFile = (path) => {
       const workspaceId = kb.get().selected
       call('openwiki/kb/delete', { workspaceId, path })
         .then((res) => {
-          if (res && res.ok === false) kb.set({ error: res.error })
+          if (res && res.ok === false) kb.set({ error: msg(res.error) })
           refreshKb(workspaceId)
         })
-        .catch((err) => kb.set({ error: `删除失败：${String(err && err.message ? err.message : err)}` }))
+        .catch((err) => kb.set({ error: t('删除失败：{0}', String(err && err.message ? err.message : err)) }))
     }
 
     // 生成知识库：openwiki personal --update（读取 source/files 下的本地文件）。
@@ -365,7 +936,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       const raw = kb.get().language
       const normalized = normalizeLanguage(raw)
       if (normalized.error) {
-        kb.set({ error: `文档语言设置无效：${normalized.error}` })
+        kb.set({ error: t('文档语言设置无效：{0}', normalized.error) })
         return
       }
       const language = normalized.code || 'zh'
@@ -374,10 +945,10 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       kb.set({ error: null, kbNotice: null })
       call('openwiki/job/start', { workspaceId, kind: 'personal', mode: 'update', language, model, message: prompt })
         .then((res) => {
-          if (res && res.ok === false) kb.set({ error: res.error })
+          if (res && res.ok === false) kb.set({ error: msg(res.error) })
           refreshJobs()
         })
-        .catch((err) => kb.set({ error: `任务启动失败：${String(err && err.message ? err.message : err)}` }))
+        .catch((err) => kb.set({ error: t('任务启动失败：{0}', String(err && err.message ? err.message : err)) }))
     }
 
     // 阅读知识库页面（独立于 wiki 文档 tabs，避免混用）。
@@ -401,10 +972,10 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       const workspaceId = kb.get().selected
       call('openwiki/ignore/save', { workspaceId, content: kb.get().ignoreContent })
         .then((res) => {
-          kb.set({ error: res && res.ok ? null : (res && res.error || '保存失败') })
+          kb.set({ error: res && res.ok ? null : ((res && res.error) ? msg(res.error) : t('保存失败')) })
           if (res && res.ok) kb.set({ showIgnore: false })
         })
-        .catch((err) => kb.set({ error: `保存失败：${String(err && err.message ? err.message : err)}` }))
+        .catch((err) => kb.set({ error: t('保存失败：{0}', String(err && err.message ? err.message : err)) }))
     }
 
     const openPage = (path) => {
@@ -492,7 +1063,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         if (exact) return { code: exact, error: null }
         if (partial) return { code: partial, error: null }
       } catch { /* DisplayNames unavailable */ }
-      return { code: null, error: `无法识别的语言 "${input}"：openwiki 使用 BCP-47 语言代码（如 zh / en / zh-CN），或常见语言名（如 English、中文）` }
+      return { code: null, error: t('无法识别的语言 "{0}"：openwiki 使用 BCP-47 语言代码（如 zh / en / zh-CN），或常见语言名（如 English、中文）', input) }
     }
 
     const startJob = (mode) => {
@@ -501,7 +1072,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       const raw = kb.get().language
       const normalized = normalizeLanguage(raw)
       if (normalized.error) {
-        kb.set({ error: `文档语言设置无效：${normalized.error}` })
+        kb.set({ error: t('文档语言设置无效：{0}', normalized.error) })
         return
       }
       const language = normalized.code || ((overview && overview.lastUpdate && overview.lastUpdate.language) || 'zh')
@@ -510,24 +1081,24 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       call('openwiki/job/start', { workspaceId, mode, language, model })
         .then((res) => {
           if (res && res.ok === false) {
-            kb.set({ error: res.error })
+            kb.set({ error: msg(res.error) })
           } else if (res && res.resumed) {
-            const rmode = res.resumedMode === 'update' ? '增量更新' : '初始化'
-            kb.set({ error: null, notice: `检测到之前未完成的生成任务（已保存断点），openwiki 将从断点继续（${rmode} · 语言 ${res.resumedLanguage || language}${model ? `、模型 ${model}` : ''}）` })
+            const rmode = res.resumedMode === 'update' ? t('增量更新') : t('初始化')
+            kb.set({ error: null, notice: t('检测到之前未完成的生成任务（已保存断点），openwiki 将从断点继续（{0} · 语言 {1}{2}）', [rmode, res.resumedLanguage || language, model ? t('、模型 {0}', model) : '']) })
           }
           refreshJobs()
         })
-        .catch((err) => kb.set({ error: `任务启动失败：${String(err && err.message ? err.message : err)}` }))
+        .catch((err) => kb.set({ error: t('任务启动失败：{0}', String(err && err.message ? err.message : err)) }))
     }
 
     const pauseJob = () => {
       const workspaceId = kb.get().selected
       call('openwiki/job/pause', { workspaceId })
         .then((res) => {
-          if (res && res.ok === false) kb.set({ error: res.error })
+          if (res && res.ok === false) kb.set({ error: msg(res.error) })
           refreshJobs()
         })
-        .catch((err) => kb.set({ error: `暂停失败：${String(err && err.message ? err.message : err)}` }))
+        .catch((err) => kb.set({ error: t('暂停失败：{0}', String(err && err.message ? err.message : err)) }))
     }
 
     const resumeJob = () => {
@@ -535,17 +1106,17 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       kb.set({ error: null })
       call('openwiki/job/resume', { workspaceId })
         .then((res) => {
-          if (res && res.ok === false) kb.set({ error: res.error })
+          if (res && res.ok === false) kb.set({ error: msg(res.error) })
           refreshJobs()
         })
-        .catch((err) => kb.set({ error: `继续失败：${String(err && err.message ? err.message : err)}` }))
+        .catch((err) => kb.set({ error: t('继续失败：{0}', String(err && err.message ? err.message : err)) }))
     }
 
     const killJob = () => {
       const workspaceId = kb.get().selected
       call('openwiki/job/kill', { workspaceId })
         .then((res) => {
-          if (res && res.abandoned) kb.set({ error: '已放弃暂停中的任务（openwiki 的 .run.json 保留，下次生成会从断点恢复；如需全新生成请先完成该次任务）' })
+          if (res && res.abandoned) kb.set({ error: t('已放弃暂停中的任务（openwiki 的 .run.json 保留，下次生成会从断点恢复；如需全新生成请先完成该次任务）') })
           refreshJobs()
         })
         .catch(() => {})
@@ -563,7 +1134,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         const errJob = (s.jobs || []).find((j) => j.workspaceId === s.selected && j.status === 'error')
         if (errJob && errJob.jobId !== lastErrorJobId) {
           lastErrorJobId = errJob.jobId
-          kb.set({ error: `生成失败：${errJob.message || errJob.phase || '未知错误'}` })
+          kb.set({ error: t('生成失败：{0}', errJob.message || errJob.phase || t('未知错误')) })
         } else if (!errJob) {
           lastErrorJobId = null
         }
@@ -906,7 +1477,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       // 这 1~2 秒内按钮保持禁用并显示加载反馈，避免用户误以为没有响应。
       const pausing = !paused && job.phase === 'pausing'
       const tagClass = paused ? 'owk-tag-warn' : 'owk-tag-run'
-      const tagText = paused ? '已暂停' : (pausing ? '暂停中…' : (job.phase === 'cancelled' ? '已取消' : job.phase))
+      const tagText = paused ? t('已暂停') : (pausing ? t('暂停中…') : (job.phase === 'cancelled' ? t('已取消') : job.phase))
       // 布局：第一行 = 状态标签 + 文案（可换行）；第二行 = 操作按钮，始终
       // 独立成行且不被长文案挤压（原先按钮与文案同行会被 Flex-wrap 挤走）。
       const buttons = paused
@@ -916,13 +1487,13 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
               type: 'button',
               className: 'owk-btn owk-btn-primary',
               onClick: () => resumeJob(),
-            }, '继续'),
+            }, t('继续')),
             React.createElement('button', {
               key: 'abandon',
               type: 'button',
               className: 'owk-btn',
               onClick: () => killJob(),
-            }, '放弃'),
+            }, t('放弃')),
           ]
         : [
             React.createElement('button', {
@@ -931,14 +1502,14 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
               className: 'owk-btn',
               disabled: pausing,
               onClick: () => pauseJob(),
-            }, pausing ? '暂停中…' : '暂停'),
+            }, pausing ? t('暂停中…') : t('暂停')),
             React.createElement('button', {
               key: 'cancel',
               type: 'button',
               className: 'owk-btn',
               disabled: pausing,
               onClick: () => killJob(),
-            }, '取消'),
+            }, t('取消')),
           ]
       return React.createElement('div', { className: 'owk-card' },
         React.createElement('div', { className: 'owk-row' },
@@ -976,15 +1547,15 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         return React.createElement('div', null,
           React.createElement('div', { className: 'owk-row', style: { marginBottom: 8 } },
             React.createElement('span', { className: 'owk-icon' }, '📂'),
-            React.createElement('span', { style: { fontWeight: 600 } }, dir ? `目录：${dir}` : '根目录'),
+            React.createElement('span', { style: { fontWeight: 600 } }, dir ? t('目录：{0}', dir) : t('根目录')),
             React.createElement('span', { className: 'owk-overlay-spacer' }),
             React.createElement('button', {
               type: 'button',
               className: 'owk-btn',
               onClick: () => kb.set({ browseDir: null }),
-            }, '返回')),
+            }, t('返回'))),
           files.length === 0
-            ? React.createElement('div', { className: 'owk-empty' }, '该目录下暂无文档')
+            ? React.createElement('div', { className: 'owk-empty' }, t('该目录下暂无文档'))
             : React.createElement('div', { className: 'owk-card' },
                 files.map((p) =>
                   React.createElement('button', {
@@ -999,9 +1570,9 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                     React.createElement('span', { className: 'owk-muted', style: { marginLeft: 4 } }, p.path)))))
       }
       const page = snap.page
-      if (page === null) return React.createElement('div', { className: 'owk-empty' }, 'Wiki 将在生成完成后显示在这里')
-      if (page.loading) return React.createElement('div', { className: 'owk-empty' }, '渲染中...')
-      if (page.ok === false) return React.createElement('div', { className: 'owk-empty' }, page.error || 'Repo Wiki 生成失败，请重试。')
+      if (page === null) return React.createElement('div', { className: 'owk-empty' }, t('Wiki 将在生成完成后显示在这里'))
+      if (page.loading) return React.createElement('div', { className: 'owk-empty' }, t('渲染中...'))
+      if (page.ok === false) return React.createElement('div', { className: 'owk-empty' }, msg(page.error) || t('Repo Wiki 生成失败，请重试。'))
       const sources = page.frontmatter && Array.isArray(page.frontmatter.sources) ? page.frontmatter.sources : []
       const toc = extractToc(page.content)
       // Toolbar order: 目录 / 预览 / 代码. "目录" toggles a split pane below the
@@ -1021,7 +1592,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       }
       const tocPane = React.createElement('div', { className: 'owk-toc-pane' },
         toc.length === 0
-          ? React.createElement('div', { className: 'owk-muted', style: { padding: '8px 12px' } }, '本文档无二级及以上标题')
+          ? React.createElement('div', { className: 'owk-muted', style: { padding: '8px 12px' } }, t('本文档无二级及以上标题'))
           : toc.map((t, i) =>
               React.createElement('button', {
                 key: i,
@@ -1038,20 +1609,20 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
             if (snap.docView === 'code') kb.set({ docView: 'preview' })
             kb.set({ tocOpen: !snap.tocOpen })
           },
-        }, '目录'),
+        }, t('目录')),
         React.createElement('button', {
           type: 'button',
           className: `owk-btn${snap.docView === 'preview' ? ' owk-btn-primary' : ''}`,
           onClick: () => kb.set({ docView: 'preview', tocOpen: false }),
-        }, '预览'),
+        }, t('预览')),
         React.createElement('button', {
           type: 'button',
           className: `owk-btn${snap.docView === 'code' ? ' owk-btn-primary' : ''}`,
           onClick: () => kb.set({ docView: 'code', tocOpen: false }),
-        }, '代码'),
+        }, t('代码')),
         React.createElement('span', { className: 'owk-overlay-spacer' }),
         React.createElement('span', { className: 'owk-muted' },
-          sources.length > 0 ? `章节来源：${sources.join('，')}` : ''),
+          sources.length > 0 ? t('章节来源：{0}', sources.join('，')) : ''),
       )
       if (snap.docView === 'code') {
         return React.createElement('div', null,
@@ -1094,18 +1665,18 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
 
       const fileList = React.createElement('div', { className: 'owk-card', style: { marginBottom: 8 } },
         React.createElement('div', { className: 'owk-row' },
-          React.createElement('span', { style: { fontWeight: 600 } }, '本地文件'),
+          React.createElement('span', { style: { fontWeight: 600 } }, t('本地文件')),
           React.createElement('span', { className: 'owk-overlay-spacer' }),
-          React.createElement('label', { className: 'owk-btn', style: { display: 'inline-block', cursor: 'pointer', marginBottom: 0 }, title: '支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等二进制请先转为文本再上传' },
-            snap.importing ? '导入中…' : '📁 上传文件',
+          React.createElement('label', { className: 'owk-btn', style: { display: 'inline-block', cursor: 'pointer', marginBottom: 0 }, title: t('支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等二进制请先转为文本再上传') },
+            snap.importing ? t('导入中…') : t('📁 上传文件'),
             fileInput)),
         // 文件类型提示：openwiki 的 agent 读取为纯文本（无类型显示/转换机制，
         // src/agent/docs-only-backend.js read → fs.readFile utf8）。
         React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } },
-          '支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等请先转为文本再上传。'),
-        cfg ? React.createElement('div', { className: 'owk-muted', style: { marginTop: 2 } }, `保存至 ${cfg.sourceRel}/`) : null,
+          t('支持文本格式（.md / .txt / .csv / .json 等）；PDF / DOCX 等请先转为文本再上传。')),
+        cfg ? React.createElement('div', { className: 'owk-muted', style: { marginTop: 2 } }, t('保存至 {0}/', cfg.sourceRel)) : null,
         kbFiles.length === 0
-          ? React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } }, '暂无文件。上传后点击「生成知识库」。')
+          ? React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } }, t('暂无文件。上传后点击「生成知识库」。'))
           : kbFiles.map((f) =>
               React.createElement('div', { key: f.path, className: 'owk-row', style: { justifyContent: 'space-between', marginTop: 2 } },
                 React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
@@ -1113,19 +1684,19 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                 React.createElement('button', {
                   type: 'button', className: 'owk-btn', style: { padding: '1px 6px' },
                   onClick: () => deleteKbFile(f.path),
-                }, '删除'))),
+                }, t('删除')))),
       )
 
       const kbTreeView = React.createElement('div', null,
         kbTree === null
-          ? React.createElement('div', { className: 'owk-muted' }, '加载中…')
+          ? React.createElement('div', { className: 'owk-muted' }, t('加载中…'))
           : kbTree.ok === false
             ? React.createElement('div', { className: 'owk-muted' }, kbTree.error)
             : React.createElement('div', null,
                 renderTree(buildTree(kbTree.pages), 0, openKbPage, null, snap.expandedDirs),
                 kbTree.pages.length === 0
                   ? React.createElement('div', { className: 'owk-empty', style: { padding: '12px 0' } },
-                      '尚未生成知识库，点击右上「生成知识库」')
+                      t('尚未生成知识库，点击右上「生成知识库」'))
                   : null),
       )
 
@@ -1175,17 +1746,17 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
           type: 'button',
           className: `owk-tab${snap.tab === 'cards' ? ' sel' : ''}`,
           onClick: () => kb.set({ tab: 'cards', showIgnore: false }),
-        }, '知识卡片'),
+        }, t('知识卡片')),
         React.createElement('button', {
           type: 'button',
           className: `owk-tab${snap.tab === 'kb' ? ' sel' : ''}`,
           onClick: () => { kb.set({ tab: 'kb', showIgnore: false }); refreshKb() },
-        }, '知识库'),
+        }, t('知识库')),
       )
 
       const leftContent = snap.showIgnore
         ? React.createElement('div', null,
-            React.createElement('div', { className: 'owk-muted', style: { marginBottom: 4 } }, '.openwikiignore（gitignore 语法）'),
+            React.createElement('div', { className: 'owk-muted', style: { marginBottom: 4 } }, t('.openwikiignore（gitignore 语法）')),
             React.createElement('textarea', {
               className: 'owk-select',
               style: { width: '100%', height: 180, boxSizing: 'border-box', resize: 'vertical', fontFamily: 'monospace' },
@@ -1197,17 +1768,17 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                 type: 'button',
                 className: 'owk-btn owk-btn-primary',
                 onClick: saveIgnore,
-              }, '保存'),
+              }, t('保存')),
               React.createElement('button', {
                 type: 'button',
                 className: 'owk-btn',
                 onClick: () => kb.set({ showIgnore: false }),
-              }, '取消')))
+              }, t('取消'))))
         : (snap.tab === 'kb'
             ? renderKbLeft(snap)
             : (snap.tab === 'wiki'
             ? (tree === null
-                ? React.createElement('div', { className: 'owk-muted' }, '加载中…')
+                ? React.createElement('div', { className: 'owk-muted' }, t('加载中…'))
                 : tree.ok === false
                   ? React.createElement('div', { className: 'owk-muted' }, tree.error)
                   : React.createElement('div', null,
@@ -1219,16 +1790,16 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                       renderTree(buildTree(filteredPages), 0, openPage, snap.activeTab, snap.expandedDirs),
                       tree.pages.length === 0 && (tree.inProgress || []).length === 0
                         ? React.createElement('div', { className: 'owk-empty', style: { padding: '24px 0' } },
-                            '尚未生成 Wiki，点击右上「生成」')
+                            t('尚未生成 Wiki，点击右上「生成」'))
                         : null))
             : (claims === null
-                ? React.createElement('div', { className: 'owk-muted' }, '加载中…')
+                ? React.createElement('div', { className: 'owk-muted' }, t('加载中…'))
                 : React.createElement('div', null,
                     (claims.claims || []).map((c) =>
                       React.createElement('div', { key: c.id, className: 'owk-claim' },
                         React.createElement('div', null, c.statement),
                         React.createElement('div', { className: 'owk-muted' },
-                          `${c.evidenceCount} 条证据${c.firstEvidence ? ` · ${c.firstEvidence}` : ''}`)))))))
+                          t('{0} 条证据{1}', [c.evidenceCount, c.firstEvidence ? ` · ${c.firstEvidence}` : '']))))))))
 
       return React.createElement('div', { className: 'owk-kb' },
         React.createElement('div', { className: 'owk-kb-left', style: { width: snap.leftWidth } },
@@ -1248,7 +1819,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
             type: 'text',
             className: 'owk-select',
             style: { width: '100%', marginBottom: 8, boxSizing: 'border-box' },
-            placeholder: '🔍 搜索 Open Wiki',
+            placeholder: t('🔍 搜索 Open Wiki'),
             value: snap.search,
             onChange: (e) => kb.set({ search: e.target.value }),
           }),
@@ -1263,7 +1834,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                 kb.set({ showIgnore: !snap.showIgnore, tab: 'wiki' })
                 if (!snap.showIgnore) loadIgnore()
               },
-            }, '忽略文件'),
+            }, t('忽略文件')),
             React.createElement('button', {
               type: 'button',
               className: 'owk-btn',
@@ -1273,23 +1844,23 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                 fetchWorkspaces()
                 if (sel) refreshWorkspace(sel)
               },
-            }, '刷新'),
+            }, t('刷新')),
             // 自动更新只作用于 Open Wiki（code 模式 git HEAD 轮询）：仅在该 Tab 显示，
             // 知识卡片 / 知识库不涉及自动更新。
             snap.tab === 'wiki'
               ? React.createElement('button', {
                   type: 'button',
                   className: `owk-btn${snap.autoUpdate.enabled ? ' owk-btn-primary' : ''}`,
-                  title: `${snap.autoUpdate.enabled ? '已开启' : '开启'}自动更新（当前工作区）：每 15 秒轮询 git HEAD，检测到新提交自动增量更新 Open Wiki`,
+                  title: snap.autoUpdate.enabled ? t('已开启自动更新（当前工作区）：每 15 秒轮询 git HEAD，检测到新提交自动增量更新 Open Wiki') : t('开启自动更新（当前工作区）：每 15 秒轮询 git HEAD，检测到新提交自动增量更新 Open Wiki'),
                   onClick: toggleAutoUpdate,
-                }, snap.autoUpdate.enabled ? '自动更新 ✔' : '自动更新')
+                }, snap.autoUpdate.enabled ? t('自动更新 ✔') : t('自动更新'))
               : null,
           ),
           React.createElement('div', { style: { marginTop: 8 } }, leftContent),
         ),
         React.createElement('div', {
           className: 'owk-kb-resizer',
-          title: '拖动调整左栏宽度',
+          title: t('拖动调整左栏宽度'),
           onMouseDown: onColResize,
         }),
         React.createElement('div', { className: 'owk-kb-right' },
@@ -1300,49 +1871,49 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
             ? React.createElement('div', { className: 'owk-card' },
                 // Wiki generation status (counts / time / location / regen).
                 React.createElement('div', { className: 'owk-row' },
-                  React.createElement('span', { style: { fontWeight: 600 } }, 'Open Wiki 状态'),
+                  React.createElement('span', { style: { fontWeight: 600 } }, t('Open Wiki 状态')),
                   React.createElement('span', { className: 'owk-overlay-spacer' }),
                   overview.runActive
-                    ? React.createElement('span', { className: 'owk-tag owk-tag-run' }, '生成中')
-                    : React.createElement('span', { className: 'owk-tag owk-tag-ok' }, '已生成')),
+                    ? React.createElement('span', { className: 'owk-tag owk-tag-run' }, t('生成中'))
+                    : React.createElement('span', { className: 'owk-tag owk-tag-ok' }, t('已生成'))),
                 React.createElement('div', { className: 'owk-row' },
-                  React.createElement('span', { className: 'owk-muted' }, '文件数：'),
+                  React.createElement('span', { className: 'owk-muted' }, t('文件数：')),
                   React.createElement('span', null, overview.pageCount ?? 0),
-                  React.createElement('span', { className: 'owk-muted', style: { marginLeft: 12 } }, '成功：'),
+                  React.createElement('span', { className: 'owk-muted', style: { marginLeft: 12 } }, t('成功：')),
                   React.createElement('span', null, overview.successCount ?? overview.pageCount ?? 0),
-                  React.createElement('span', { className: 'owk-muted', style: { marginLeft: 12 } }, '失败：'),
+                  React.createElement('span', { className: 'owk-muted', style: { marginLeft: 12 } }, t('失败：')),
                   React.createElement('span', null, overview.failedCount ?? 0),
                 ),
                 overview.lastUpdate
                   ? React.createElement('div', { className: 'owk-muted' },
-                      `更新时间：${String(overview.lastUpdate.updatedAt || '').slice(0, 16).replace('T', ' ')} · ${overview.lastUpdate.language} · ${overview.lastUpdate.status} · 模型 ${overview.lastUpdate.model || '—'}`)
+                      t('更新时间：{0} · {1} · {2} · 模型 {3}', [String(overview.lastUpdate.updatedAt || '').slice(0, 16).replace('T', ' '), overview.lastUpdate.language, overview.lastUpdate.status, overview.lastUpdate.model || '—']))
                   : null,
                 overview.wikiDirRelative
-                  ? React.createElement('div', { className: 'owk-muted' }, `文档位置：项目根目录/${overview.wikiDirRelative}`)
+                  ? React.createElement('div', { className: 'owk-muted' }, t('文档位置：项目根目录/{0}', overview.wikiDirRelative))
                   : null,
                 React.createElement('div', { className: 'owk-row', style: { marginTop: 8 } },
                   React.createElement('button', {
                     type: 'button',
                     className: 'owk-btn owk-btn-primary',
                     disabled: isRunning,
-                    title: '根据仓库新增/修改的原始并更新 wiki 文档（任务进行/暂停时由任务卡控制）',
+                    title: t('根据仓库新增/修改的原始并更新 wiki 文档（任务进行/暂停时由任务卡控制）'),
                     onClick: () => startJob('update'),
-                  }, '重新生成'),
+                  }, t('重新生成')),
                 ),
               )
             : React.createElement('div', { className: 'owk-card' },
                 React.createElement('div', { className: 'owk-row' },
-                  React.createElement('span', null, '生成你的 Open Wiki'),
+                  React.createElement('span', null, t('生成你的 Open Wiki')),
                   React.createElement('span', { className: 'owk-overlay-spacer' }),
                   React.createElement('button', {
                     type: 'button',
                     className: 'owk-btn owk-btn-primary',
                     disabled: isRunning,
                     onClick: () => startJob('init'),
-                  }, '生成'),
+                  }, t('生成')),
                 ),
                 React.createElement('div', { className: 'owk-muted', style: { marginTop: 6 } },
-                  'Open Wiki（为您准备）和知识卡片（为 Agent 准备）将基于您的代码库一起生成和更新。'),
+                  t('Open Wiki（为您准备）和知识卡片（为 Agent 准备）将基于您的代码库一起生成和更新。')),
               ),
           snap.error
             ? React.createElement('div', { className: 'owk-row', style: { color: '#e74c3c' } }, snap.error)
@@ -1353,19 +1924,19 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
           renderProgress(job),
           snap.tabs.length > 0
             ? React.createElement('div', { className: 'owk-row', style: { borderBottom: '1px solid var(--dsw-border, #333)', paddingBottom: 6 } },
-                snap.tabs.map((t) =>
-                  React.createElement('span', { key: t.path, style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+                snap.tabs.map((tab) =>
+                  React.createElement('span', { key: tab.path, style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
                     React.createElement('button', {
                       type: 'button',
-                      className: `owk-btn${snap.activeTab === t.path ? ' owk-btn-primary' : ''}`,
-                      onClick: () => openPage(t.path),
-                    }, t.title),
+                      className: `owk-btn${snap.activeTab === tab.path ? ' owk-btn-primary' : ''}`,
+                      onClick: () => openPage(tab.path),
+                    }, tab.title),
                     React.createElement('button', {
                       type: 'button',
                       className: 'owk-btn',
                       style: { padding: '1px 6px' },
-                      title: '关闭',
-                      onClick: () => closeTab(t.path),
+                      title: t('关闭'),
+                      onClick: () => closeTab(tab.path),
                     }, '✕'))))
             : null,
           renderDoc(snap),
@@ -1386,55 +1957,55 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
 
       const statusCard = React.createElement('div', { className: 'owk-card' },
         React.createElement('div', { className: 'owk-row' },
-          React.createElement('span', { style: { fontWeight: 600 } }, '知识库状态'),
+          React.createElement('span', { style: { fontWeight: 600 } }, t('知识库状态')),
           React.createElement('span', { className: 'owk-overlay-spacer' }),
           job
-            ? React.createElement('span', { className: 'owk-tag owk-tag-run' }, '生成中')
+            ? React.createElement('span', { className: 'owk-tag owk-tag-run' }, t('生成中'))
             : pageCount > 0
-              ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, '已生成')
-              : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, '未生成')),
+              ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, t('已生成'))
+              : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, t('未生成'))),
         React.createElement('div', { className: 'owk-row', style: { marginTop: 4 } },
-          React.createElement('span', { className: 'owk-muted' }, '页面：'),
+          React.createElement('span', { className: 'owk-muted' }, t('页面：')),
           React.createElement('span', null, pageCount),
-          React.createElement('span', { className: 'owk-muted', style: { marginLeft: 12 } }, '文件：'),
+          React.createElement('span', { className: 'owk-muted', style: { marginLeft: 12 } }, t('文件：')),
           React.createElement('span', null, fileCount),
         ),
         lastUpdate
           ? React.createElement('div', { className: 'owk-muted', style: { marginTop: 4, whiteSpace: 'normal', wordBreak: 'break-all' } },
-              `更新时间：${String(lastUpdate.updatedAt || '').slice(0, 16).replace('T', ' ')} · ${lastUpdate.language || '—'} · ${lastUpdate.status || '—'} · 模型 ${lastUpdate.model || '—'}`)
+              t('更新时间：{0} · {1} · {2} · 模型 {3}', [String(lastUpdate.updatedAt || '').slice(0, 16).replace('T', ' '), lastUpdate.language || '—', lastUpdate.status || '—', lastUpdate.model || '—']))
           : null,
         cfg
           ? React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } },
-              `输出位置：${cfg.wikiDir || '—'}`)
+              t('输出位置：{0}', cfg.wikiDir || '—'))
           : null,
         React.createElement('div', { className: 'owk-row', style: { marginTop: 8 } },
           React.createElement('button', {
             type: 'button',
             className: 'owk-btn owk-btn-primary',
             disabled: isRunning,
-            title: '用 openwiki personal 模式分析来源并生成/更新知识库（任务进行/暂停时由任务卡控制）',
+            title: t('用 openwiki personal 模式分析来源并生成/更新知识库（任务进行/暂停时由任务卡控制）'),
             onClick: () => startKbJob(),
-          }, '生成知识库'),
+          }, t('生成知识库')),
         ),
         React.createElement('div', { className: 'owk-muted', style: { marginTop: 6, lineHeight: 1.5 } },
           React.createElement('div', null,
-            '生成逻辑：每次点击会执行完整分析——AI 读取「上传的本地文件」与「现有知识库」，在保留未变化页面的前提下增量生成/更新知识库页面；内容无变化时不重复记录更新时间。每次生成均消耗模型额度。'),
+            t('生成逻辑：每次点击会执行完整分析——AI 读取「上传的本地文件」与「现有知识库」，在保留未变化页面的前提下增量生成/更新知识库页面；内容无变化时不重复记录更新时间。每次生成均消耗模型额度。')),
           React.createElement('div', { style: { marginTop: 4 } },
-            '• 新增文件：上传后点击「生成知识库」，AI 会将其整理进知识库（新增或并入对应来源/主题页面）。'),
+            t('• 新增文件：上传后点击「生成知识库」，AI 会将其整理进知识库（新增或并入对应来源/主题页面）。')),
           React.createElement('div', { style: { marginTop: 2 } },
-            '• 删除文件：已删除的上传文件，知识库中对应的旧内容暂不会自动清除；如需完全重来，可删除 openwiki-kb/wiki/ 下内容后重新生成。'),
+            t('• 删除文件：已删除的上传文件，知识库中对应的旧内容暂不会自动清除；如需完全重来，可删除 openwiki-kb/wiki/ 下内容后重新生成。')),
           React.createElement('div', { style: { marginTop: 2 } },
-            '• 与 Open Wiki（代码库）和知识卡片相互独立。'),
+            t('• 与 Open Wiki（代码库）和知识卡片相互独立。')),
         ),
       )
 
       const kbDoc = kbPage === null
         ? React.createElement('div', { className: 'owk-empty', style: { padding: '24px 0' } },
-            '从左侧知识库树选择页面阅读')
+            t('从左侧知识库树选择页面阅读'))
         : kbPage.loading
-          ? React.createElement('div', { className: 'owk-muted' }, '加载中…')
+          ? React.createElement('div', { className: 'owk-muted' }, t('加载中…'))
           : kbPage.ok === false
-            ? React.createElement('div', { className: 'owk-muted' }, kbPage.error || '页面不存在')
+            ? React.createElement('div', { className: 'owk-muted' }, msg(kbPage.error) || t('页面不存在'))
             : React.createElement('div', null,
                 React.createElement('div', { className: 'owk-row', style: { borderBottom: '1px solid var(--dsw-border, #333)', paddingBottom: 6 } },
                   React.createElement('span', { className: 'owk-icon' }, '📄'),
@@ -1472,13 +2043,13 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
       return React.createElement('div', { style: { height: '100%', display: 'flex', flexDirection: 'column' } },
         React.createElement('div', { className: 'owk-row', style: { padding: '6px 10px', borderBottom: '1px solid var(--dsw-border, #333)' } },
           React.createElement('span', { className: 'owk-icon' }, '📚'),
-          React.createElement('span', null, 'openwiki 知识库'),
+          React.createElement('span', null, t('openwiki 知识库')),
           React.createElement('span', { className: 'owk-overlay-spacer' }),
           React.createElement('button', {
             type: 'button',
             className: 'owk-btn',
             onClick: () => kb.set({ open: true }),
-          }, '弹窗'),
+          }, t('弹窗')),
         ),
         React.createElement('div', { style: { flex: 1, overflow: 'hidden', display: 'flex' } },
           React.createElement('div', { className: 'owk-body', style: { flex: 1, display: 'flex', padding: 0 } },
@@ -1492,12 +2063,12 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
     // Returns { ok, error? }. Idempotent: re-registration is refused.
     const registerSidebarTab = () => {
       const d = detectSidebar()
-      if (!d.connected) return { ok: false, error: '未检测到 dsh-better-sidebar 插件。请先安装并启用该插件，然后刷新页面。' }
+      if (!d.connected) return { ok: false, error: t('未检测到 dsh-better-sidebar 插件。请先安装并启用该插件，然后刷新页面。') }
       if (kb.get().sidebarRegistered) return { ok: true, error: null, already: true }
       try {
         const dispose = d.service.registerTab({
           id: 'openwiki',
-          title: () => 'openwiki知识库',
+          title: () => t('openwiki知识库'),
           icon: (size) => React.createElement('span', { style: { fontSize: size || 15 } }, '📚'),
           order: 50,
           single: true,
@@ -1509,7 +2080,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         void dispose
         return { ok: true, error: null, already: false }
       } catch (err) {
-        return { ok: false, error: `注册失败：${String(err && err.message ? err.message : err)}` }
+        return { ok: false, error: t('注册失败：{0}', String(err && err.message ? err.message : err)) }
       }
     }
 
@@ -1648,7 +2219,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
     // 1) Sidebar footer entry
     // ------------------------------------------------------------------
     slots.inject('sidebar.footer.action', () => slots.register(
-      { name: 'sidebar.footer.action', id: 'openwiki', order: 10, label: () => 'openwiki知识库' },
+      { name: 'sidebar.footer.action', id: 'openwiki', order: 10, label: () => t('openwiki知识库') },
       (props) => {
         const snap = useKb()
         const r = snap.runtime
@@ -1658,7 +2229,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         return React.createElement('button', {
           type: 'button',
           className: 'owk-entry',
-          title: 'openwiki 知识库',
+          title: t('openwiki 知识库'),
           onClick: () => {
             if (!snap.runtime) refreshRuntime()
             kb.set({ open: true })
@@ -1667,9 +2238,9 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
           React.createElement('span', { className: 'owk-icon' }, '📚'),
           props.wide
             ? React.createElement('span', null,
-                'openwiki知识库',
+                t('openwiki知识库'),
                 React.createElement('span', { className: 'owk-muted', style: { marginLeft: 6 } },
-                  r ? (r.installed ? `v${r.version ?? '?'}` : '未安装') : '')) : null,
+                  r ? (r.installed ? `v${r.version ?? '?'}` : t('未安装')) : '')) : null,
           props.wide && r
             ? React.createElement('span', {
                 className: `owk-dot ${r.installed ? 'owk-dot-ok' : 'owk-dot-err'}`,
@@ -1769,27 +2340,27 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         return React.createElement('div', { className: 'owk-win', style: winStyle },
           React.createElement('div', { className: 'owk-win-header', onMouseDown: onDragStart },
             React.createElement('span', { className: 'owk-icon' }, '📚'),
-            React.createElement('span', { className: 'owk-overlay-title' }, 'openwiki 知识库'),
+            React.createElement('span', { className: 'owk-overlay-title' }, t('openwiki 知识库')),
             React.createElement('button', {
               type: 'button',
               className: 'owk-btn',
               style: { marginLeft: 8 },
-              title: '最大化/还原',
+              title: t('最大化/还原'),
               onClick: () => kb.set({ win: { ...kb.get().win, max: !win.max } }),
             }, win.max ? '▣' : '□'),
             React.createElement('span', { className: 'owk-overlay-spacer' }),
             React.createElement('span', { className: 'owk-muted' },
               r
                 ? (r.installed
-                    ? `运行时 v${r.version ?? '?'}${r.hasUpdate ? `（可升级到 v${r.latestVersion}）` : ''}`
-                    : '运行时未安装')
-                : '运行时状态未知'),
+                    ? t('运行时 v{0}{1}', [r.version ?? '?', r.hasUpdate ? t('（可升级到 v{0}）', r.latestVersion) : ''])
+                    : t('运行时未安装'))
+                : t('运行时状态未知')),
             React.createElement('button', {
               type: 'button',
               className: 'owk-btn',
               style: { marginLeft: 8 },
               onClick: () => kb.set({ open: false }),
-            }, '关闭'),
+            }, t('关闭')),
           ),
           React.createElement('div', { className: 'owk-body', style: { display: 'flex', flexDirection: 'column', padding: 0 } },
             renderKb(snap, wsList),
@@ -1798,7 +2369,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
             ? React.createElement('div', {
                 className: 'owk-win-resize',
                 onMouseDown: onResizeStart,
-                title: '拖动缩放',
+                title: t('拖动缩放'),
               })
             : null,
         )
@@ -1824,39 +2395,62 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
         }, [])
         const r = snap.runtime
         const m = snap.model
+        // Document content language mapped onto the static LANGS option list
+        // (older free-text values outside the list render as the zh default).
+        const docLang = LANGS.some((l) => l.code === snap.language) ? snap.language : 'zh'
         return React.createElement('div', { style: { padding: '4px 2px' } },
+          // 界面语言（第一行）：控制插件界面显示语言；与「文档内容语言」共用
+          // LANGS 选项（默认 zh），选择即时生效并持久化到 localStorage。
           React.createElement('div', { className: 'owk-card' },
             React.createElement('div', { className: 'owk-row' },
-              React.createElement('span', { style: { fontWeight: 600 } }, '运行时'),
+              React.createElement('span', { style: { fontWeight: 600 } }, t('界面语言')),
+              React.createElement('span', { className: 'owk-overlay-spacer' }),
+              React.createElement('select', {
+                className: 'owk-select',
+                value: snap.uiLang,
+                onChange: (e) => {
+                  const code = e.target.value
+                  kb.set({ uiLang: code })
+                  try { window.localStorage.setItem('dsh-openwiki:uiLang', code) } catch { /* noop */ }
+                },
+              }, LANGS.map((l) =>
+                React.createElement('option', { key: l.code, value: l.code }, `${l.label} (${l.code})`))),
+            ),
+            React.createElement('div', { className: 'owk-muted', style: { marginTop: 6 } },
+              t('界面显示语言：完整支持 中文 / English / 日本語 / 한국어，其余语言界面自动回退为 English；文档生成语言请在下方「文档内容语言」中单独设置。')),
+          ),
+          React.createElement('div', { className: 'owk-card' },
+            React.createElement('div', { className: 'owk-row' },
+              React.createElement('span', { style: { fontWeight: 600 } }, t('运行时')),
               React.createElement('span', { className: 'owk-overlay-spacer' }),
               React.createElement('button', {
                 type: 'button',
                 className: 'owk-btn',
                 disabled: snap.busy,
                 onClick: refreshRuntime,
-              }, '刷新'),
+              }, t('刷新')),
             ),
             r === null
-              ? React.createElement('div', { className: 'owk-muted' }, snap.busy ? '检测中…' : '未检测（点刷新）')
+              ? React.createElement('div', { className: 'owk-muted' }, snap.busy ? t('检测中…') : t('未检测（点刷新）'))
               : React.createElement('div', null,
                   React.createElement('div', { className: 'owk-row' },
                     React.createElement('span', { className: `owk-dot ${r.installed ? 'owk-dot-ok' : 'owk-dot-err'}` }),
-                    React.createElement('span', null, r.installed ? '已安装' : '未安装'),
-                    r.error && !r.installed ? React.createElement('span', { className: 'owk-muted' }, `（${r.error}）`) : null,
+                    React.createElement('span', null, r.installed ? t('已安装') : t('未安装')),
+                    r.error && !r.installed ? React.createElement('span', { className: 'owk-muted' }, `（${msg(r.error)}）`) : null,
                   ),
                   React.createElement('div', { className: 'owk-row' },
-                    React.createElement('span', null, '版本：'),
+                    React.createElement('span', null, t('版本：')),
                     React.createElement('span', null, r.version ?? '—'),
                     r.hasUpdate
-                      ? React.createElement('span', { className: 'owk-tag owk-tag-warn' }, `有新版本 v${r.latestVersion}`)
-                      : React.createElement('span', { className: 'owk-tag owk-tag-ok' }, '最新'),
+                      ? React.createElement('span', { className: 'owk-tag owk-tag-warn' }, t('有新版本 v{0}', r.latestVersion))
+                      : React.createElement('span', { className: 'owk-tag owk-tag-ok' }, t('最新')),
                   ),
                   React.createElement('div', { className: 'owk-row' },
-                    React.createElement('span', null, '可执行：'),
+                    React.createElement('span', null, t('可执行：')),
                     React.createElement('span', { className: 'owk-muted' }, r.exePath ?? '—'),
                   ),
                   React.createElement('div', { className: 'owk-row' },
-                    React.createElement('span', null, '脚本：'),
+                    React.createElement('span', null, t('脚本：')),
                     React.createElement('span', { className: 'owk-muted' }, r.scriptPath ?? '—'),
                   ),
                 ),
@@ -1867,23 +2461,23 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                     className: 'owk-btn owk-btn-primary',
                     disabled: snap.busy,
                     onClick: () => runAction('openwiki/runtime/install', 'installing', {}),
-                  }, '安装 openwiki 运行时')
+                  }, t('安装 openwiki 运行时'))
                 : React.createElement('button', {
                     type: 'button',
                     className: 'owk-btn',
                     disabled: snap.busy || !r.hasUpdate,
                     onClick: () => runAction('openwiki/runtime/update', 'updating', {}),
-                  }, r.hasUpdate ? `升级到 v${r.latestVersion}` : '已是最新版本'),
+                  }, r.hasUpdate ? t('升级到 v{0}', r.latestVersion) : t('已是最新版本')),
               React.createElement('button', {
                 type: 'button',
                 className: 'owk-btn',
                 disabled: snap.busy || !r || !r.installed,
                 onClick: () => runAction('openwiki/runtime/probe', 'probing', {}),
-              }, '自检（openwiki --help）'),
+              }, t('自检（openwiki --help）')),
             ),
             snap.action
               ? React.createElement('div', { className: 'owk-row owk-muted' },
-                  snap.action === 'installing' ? '正在安装（npm install -g openwiki）…' : snap.action === 'updating' ? '正在升级…' : '正在自检…')
+                  snap.action === 'installing' ? t('正在安装（npm install -g openwiki）…') : snap.action === 'updating' ? t('正在升级…') : t('正在自检…'))
               : null,
             snap.lastOutput
               ? React.createElement('div', { className: 'owk-pre' }, snap.lastOutput)
@@ -1891,45 +2485,45 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
           ),
           React.createElement('div', { className: 'owk-card' },
             React.createElement('div', { className: 'owk-row' },
-              React.createElement('span', { style: { fontWeight: 600 } }, '模型（DSH 复用 → openwiki）'),
+              React.createElement('span', { style: { fontWeight: 600 } }, t('模型（DSH 复用 → openwiki）')),
               React.createElement('span', { className: 'owk-overlay-spacer' }),
               React.createElement('button', {
                 type: 'button',
                 className: 'owk-btn',
                 disabled: snap.busy,
                 onClick: refreshModel,
-              }, '刷新'),
+              }, t('刷新')),
             ),
             m === null
-              ? React.createElement('div', { className: 'owk-muted' }, snap.busy ? '读取中…' : '未读取（点刷新）')
+              ? React.createElement('div', { className: 'owk-muted' }, snap.busy ? t('读取中…') : t('未读取（点刷新）'))
               : React.createElement('div', null,
                   React.createElement('div', { className: 'owk-row' },
-                    React.createElement('span', null, 'DSH 默认模型：'),
+                    React.createElement('span', null, t('DSH 默认模型：')),
                     React.createElement('span', null,
                       m.selection ? `${m.selection.provider} / ${m.selection.model}` : '—'),
                   ),
                   React.createElement('div', { className: 'owk-row' },
-                    React.createElement('span', null, '映射到 openwiki：'),
+                    React.createElement('span', null, t('映射到 openwiki：')),
                     m.owProvider
                       ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, m.owProvider)
-                      : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, '无法自动映射'),
+                      : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, t('无法自动映射')),
                     m.keyConfigured
-                      ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, 'Key 已解析')
-                      : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, 'Key 未解析'),
+                      ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, t('Key 已解析'))
+                      : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, t('Key 未解析')),
                   ),
                   m.warnings && m.warnings.length > 0
-                    ? React.createElement('div', { className: 'owk-row owk-muted' }, m.warnings[0])
+                    ? React.createElement('div', { className: 'owk-row owk-muted' }, msg(m.warnings[0]))
                     : null,
                   React.createElement('div', { className: 'owk-row' },
-                    React.createElement('span', null, '凭证引用：'),
+                    React.createElement('span', null, t('凭证引用：')),
                     React.createElement('span', { className: 'owk-muted' }, m.apiKeyEnv ?? '—'),
-                    m.keySource ? React.createElement('span', { className: 'owk-muted' }, `来源：${m.keySource}`) : null,
+                    m.keySource ? React.createElement('span', { className: 'owk-muted' }, t('来源：{0}', m.keySource)) : null,
                   ),
                   React.createElement('div', { className: 'owk-row' },
-                    React.createElement('span', null, '~/.openwiki/.env：'),
+                    React.createElement('span', null, t('~/.openwiki/.env：')),
                     m.envExists
-                      ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, `已存在（provider=${m.envProvider ?? '?'}，model=${m.envModel ?? '?'}）`)
-                      : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, '不存在'),
+                      ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, t('已存在（provider={0}，model={1}）', [m.envProvider ?? '?', m.envModel ?? '?']))
+                      : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, t('不存在')),
                   ),
                   // 同步 + 可选生成模型（--modelId，留空跟随 DSH 模型）。
                   React.createElement('div', { className: 'owk-row', style: { marginTop: 8 } },
@@ -1938,31 +2532,31 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                       className: 'owk-btn owk-btn-primary',
                       disabled: snap.busy || !m.keyConfigured,
                       onClick: syncModel,
-                    }, '同步到 openwiki (.env)'),
+                    }, t('同步到 openwiki (.env)')),
                     React.createElement('button', {
                       type: 'button',
                       className: 'owk-btn',
                       onClick: () => {
                         const v = String(kb.get().genModel || '').trim()
                         if (v && !/^[A-Za-z0-9][A-Za-z0-9._:/@+,-]*$/u.test(v)) {
-                          kb.set({ error: `模型 ID 无效：${v}` })
+                          kb.set({ error: t('模型 ID 无效：{0}', v) })
                           return
                         }
                         kb.set({ genModel: v, error: null })
                         try { window.localStorage.setItem('dsh-openwiki:model', v) } catch { /* noop */ }
                       },
-                    }, '保存生成模型'),
+                    }, t('保存生成模型')),
                     React.createElement('input', {
                       type: 'text',
                       className: 'owk-select',
                       style: { flex: 1, minWidth: 0, boxSizing: 'border-box' },
-                      placeholder: '生成模型（可选）：留空跟随 DSH 模型，如 deepseek-chat',
+                      placeholder: t('生成模型（可选）：留空跟随 DSH 模型，如 deepseek-chat'),
                       value: snap.genModel,
                       onChange: (e) => kb.set({ genModel: e.target.value }),
                     }),
                   ),
                   React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } },
-                    'openwiki 支持 --modelId 覆盖生成模型：填一个更快的模型（如 deepseek-chat）可显著提升生成速度；留空则跟随 DSH 模型。'),
+                    t('openwiki 支持 --modelId 覆盖生成模型：填一个更快的模型（如 deepseek-chat）可显著提升生成速度；留空则跟随 DSH 模型。')),
                   // Model-bridge feedback lives in THIS card (the runtime card
                   // owns lastOutput for install/update/probe only).
                   snap.modelOutput
@@ -1976,9 +2570,9 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                           onClick: () => {
                             try { navigator.clipboard.writeText(snap.modelCommand) } catch { /* clipboard unavailable */ }
                           },
-                        }, '复制命令'),
+                        }, t('复制命令')),
                         React.createElement('span', { className: 'owk-muted' },
-                          '在终端执行后重新点击同步（命令包含 API Key，请勿泄露）'),
+                          t('在终端执行后重新点击同步（命令包含 API Key，请勿泄露）')),
                       )
                     : null,
                   snap.modelCommand
@@ -1988,58 +2582,51 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
           ),
           React.createElement('div', { className: 'owk-card' },
             React.createElement('div', { className: 'owk-row' },
-              React.createElement('span', { style: { fontWeight: 600 } }, '文档内容语言'),
-              React.createElement('span', { className: 'owk-overlay-spacer' }),
-              React.createElement('span', { className: 'owk-muted' }, '设置页'),
+              React.createElement('span', { style: { fontWeight: 600 } }, t('文档内容语言')),
             ),
             React.createElement('div', { className: 'owk-row', style: { marginTop: 6 } },
-              React.createElement('input', {
-                type: 'text',
+              React.createElement('select', {
                 className: 'owk-select',
                 style: { flex: 1, minWidth: 0, boxSizing: 'border-box' },
-                placeholder: '例如 zh / en / zh-CN / English / 中文',
-                value: snap.language,
+                value: docLang,
                 onChange: (e) => kb.set({ language: e.target.value }),
-              }),
+              }, LANGS.map((l) =>
+                React.createElement('option', { key: l.code, value: l.code }, `${l.label} (${l.code})`))),
               React.createElement('button', {
                 type: 'button',
                 className: 'owk-btn owk-btn-primary',
                 onClick: () => {
-                  const normalized = normalizeLanguage(kb.get().language)
-                  if (normalized.error) {
-                    kb.set({ error: `文档语言设置无效：${normalized.error}` })
-                    return
-                  }
-                  kb.set({ language: normalized.code || 'zh', error: null })
-                  try { window.localStorage.setItem('dsh-openwiki:language', normalized.code || 'zh') } catch { /* noop */ }
+                  const code = LANGS.some((l) => l.code === snap.language) ? snap.language : 'zh'
+                  kb.set({ language: code, error: null })
+                  try { window.localStorage.setItem('dsh-openwiki:language', code) } catch { /* noop */ }
                 },
-              }, '保存'),
+              }, t('保存')),
             ),
             React.createElement('div', { className: 'owk-muted', style: { marginTop: 6 } },
-              '生成 / 重新生成 / 更新文档时传给 openwiki 的 -l/--language（BCP-47）。默认中文（zh）；输入 English、chinese 等常见语言名也会自动换算成对应代码。'),
+              t('生成 / 重新生成 / 更新文档时传给 openwiki 的 -l/--language（BCP-47）语言代码。')),
             React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } },
-              '注意：切换语言后「重新生成」会按 openwiki 的语言变更逻辑重写全部文档；下一次运行以设置的文档内容语言为准。'),
+              t('注意：切换语言后「重新生成」会按 openwiki 的语言变更逻辑重写全部文档；下一次运行以设置的文档内容语言为准。')),
           ),
           // 自动更新开关已移至知识库面板左栏「刷新」旁（工作区级，每个工作区独立）。
           React.createElement('div', { className: 'owk-card' },
             React.createElement('div', { className: 'owk-row' },
-              React.createElement('span', { style: { fontWeight: 600 } }, '侧边栏页面插件（dsh-better-sidebar）'),
+              React.createElement('span', { style: { fontWeight: 600 } }, t('侧边栏页面插件（dsh-better-sidebar）')),
               React.createElement('span', { className: 'owk-overlay-spacer' }),
               React.createElement('button', {
                 type: 'button',
                 className: 'owk-btn',
                 onClick: refreshSidebar,
-              }, '检测'),
+              }, t('检测')),
             ),
             React.createElement('div', { className: 'owk-row', style: { marginTop: 6 } },
               snap.sidebar === null
-                ? React.createElement('span', { className: 'owk-muted' }, '检测中…')
+                ? React.createElement('span', { className: 'owk-muted' }, t('检测中…'))
                 : snap.sidebar.connected
-                  ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, '已连接 dsh-better-sidebar')
-                  : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, '未检测到 dsh-better-sidebar'),
+                  ? React.createElement('span', { className: 'owk-tag owk-tag-ok' }, t('已连接 dsh-better-sidebar'))
+                  : React.createElement('span', { className: 'owk-tag owk-tag-warn' }, t('未检测到 dsh-better-sidebar')),
               snap.sidebar && snap.sidebar.connected
                 ? React.createElement('span', { className: 'owk-muted' },
-                    snap.sidebarRegistered ? '（openwiki 页面已注册）' : '（尚未注册）')
+                    snap.sidebarRegistered ? t('（openwiki 页面已注册）') : t('（尚未注册）'))
                 : null,
             ),
             React.createElement('div', { className: 'owk-row', style: { marginTop: 8 } },
@@ -2049,31 +2636,31 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
                 disabled: !(snap.sidebar && snap.sidebar.connected) || snap.sidebarRegistered,
                 onClick: () => {
                   const res = registerSidebarTab()
-                  if (!res.ok) kb.set({ error: res.error })
+                  if (!res.ok) kb.set({ error: msg(res.error) })
                 },
-              }, snap.sidebarRegistered ? '已注册侧边页' : '注册侧边页面到 dsh-better-sidebar'),
+              }, snap.sidebarRegistered ? t('已注册侧边页') : t('注册侧边页面到 dsh-better-sidebar')),
             ),
             React.createElement('div', { className: 'owk-muted', style: { marginTop: 6 } },
-              '把 openwiki 知识库注册为 dsh-better-sidebar 的一个侧边栏 Tab（新侧边页面），可直接在侧边栏查看。需要先安装并启用 dsh-better-sidebar 插件。'),
+              t('把 openwiki 知识库注册为 dsh-better-sidebar 的一个侧边栏 Tab（新侧边页面），可直接在侧边栏查看。需要先安装并启用 dsh-better-sidebar 插件。')),
             React.createElement('div', { className: 'owk-muted', style: { marginTop: 4 } },
-              'dsh-better-sidebar 地址：https://github.com/omdsh-dev/DSH-better-sidebar（已安装时可从侧边栏文件预览访问）。' ),
+              t('dsh-better-sidebar 地址：https://github.com/omdsh-dev/DSH-better-sidebar（已安装时可从侧边栏文件预览访问）。')),
             !(snap.sidebar && snap.sidebar.connected)
               ? React.createElement('div', { className: 'owk-row', style: { marginTop: 6, color: '#e67e22' } },
-                  '未检测到 dsh-better-sidebar：请先在 DSH 设置/插件中安装并启用该插件，然后刷新页面，再点击「注册侧边页面到 dsh-better-sidebar」。')
+                  t('未检测到 dsh-better-sidebar：请先在 DSH 设置/插件中安装并启用该插件，然后刷新页面，再点击「注册侧边页面到 dsh-better-sidebar」。'))
               : null,
           ),
           React.createElement('div', { className: 'owk-card' },
             React.createElement('div', { className: 'owk-row' },
-              React.createElement('span', { style: { fontWeight: 600 } }, '入口显示'),
+              React.createElement('span', { style: { fontWeight: 600 } }, t('入口显示')),
               React.createElement('span', { className: 'owk-overlay-spacer' }),
               React.createElement('button', {
                 type: 'button',
                 className: `owk-btn${snap.showEntry ? ' owk-btn-primary' : ''}`,
                 onClick: toggleShowEntry,
-              }, snap.showEntry ? '展示知识库入口 ✔' : '隐藏知识库入口'),
+              }, snap.showEntry ? t('展示知识库入口 ✔') : t('隐藏知识库入口')),
             ),
             React.createElement('div', { className: 'owk-muted', style: { marginTop: 6 } },
-              '控制是否在 DSH 主界面左下角「设置」按钮上方显示「openwiki知识库」入口。默认展示，可关闭。'),
+              t('控制是否在 DSH 主界面左下角「设置」按钮上方显示「openwiki知识库」入口。默认展示，可关闭。')),
           ),
         )
       },
