@@ -3,10 +3,11 @@
  * Plain JavaScript + React.createElement only.
  */
 return {
+  inject: ['slots', 'timer'],
   apply(ctx) {
-    const slots = ctx.get('slots')
+    const slots = ctx.slots
     if (slots === undefined) return
-    const timer = ctx.get('timer')
+    const timer = ctx.timer
 
     // ------------------------------------------------------------------
     // Closure store
