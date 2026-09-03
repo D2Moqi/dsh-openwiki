@@ -52,7 +52,7 @@ const out = `window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (requir
     return plugin.apply(ctx);
   }
   exports.name = 'dsh-openwiki';
-  exports.inject = [];
+  exports.inject = plugin.inject ?? [];
   exports.apply = apply;
   return module.exports;
 }});

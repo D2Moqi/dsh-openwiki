@@ -4,10 +4,11 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
   Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
   let React = require("react");
   let plugin = {
+  inject: ['slots', 'timer'],
   apply(ctx) {
-    const slots = ctx.get('slots')
+    const slots = ctx.slots
     if (slots === undefined) return
-    const timer = ctx.get('timer')
+    const timer = ctx.timer
 
     // ------------------------------------------------------------------
     // Display languages (static option list). Shared by the "界面语言"
@@ -2718,7 +2719,7 @@ window.__ModuleLoader__.load({ id: "dsh-openwiki", factory: (require) => {
     return plugin.apply(ctx);
   }
   exports.name = 'dsh-openwiki';
-  exports.inject = [];
+  exports.inject = plugin.inject ?? [];
   exports.apply = apply;
   return module.exports;
 }});
