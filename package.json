@@ -19,9 +19,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gitee.com/d2moqi/dsh-openwiki.git"
+    "url": "https://github.com/D2Moqi/dsh-openwiki.git"
   },
-  "homepage": "https://gitee.com/d2moqi/dsh-openwiki",
+  "homepage": "https://github.com/D2Moqi/dsh-openwiki",
   "scripts": {
     "build": "node scripts/build-host.mjs && node scripts/build-client.mjs",
     "sync:version": "node scripts/sync-version.mjs",
