@@ -127,14 +127,33 @@ return {
       return { program: exe, args: [], packageDir }
     }
 
-    const resolveNode = async () => {
+    /**
+     * resolveExecutable that unwraps Windows shims: nvm/fnm/Volta/scoop may
+     * put a `node.cmd`/`git.cmd`/`.ps1` shim ahead of the real binary on PATH.
+     * Raw `subprocess.spawn` never shell-interprets argv[0], so spawning such
+     * a shim fails with EINVAL/EPERM on Windows. When the resolved path is a
+     * shim, re-resolve `<name>.exe` and prefer the real binary; fall back to
+     * the shim only if no exe is found (downstream spawn failures are
+     * contained by runProcess anyway). Returns null on resolution failure.
+     */
+    const resolveRealExecutable = async (name) => {
       if (subprocess === undefined) return null
+      let exe = null
       try {
-        return await subprocess.resolveExecutable('node')
+        exe = await subprocess.resolveExecutable(name)
       } catch {
         return null
       }
+      if (exe && /\.(cmd|bat|ps1)$/iu.test(exe)) {
+        try {
+          const real = await subprocess.resolveExecutable(`${name}.exe`)
+          if (real) return real
+        } catch { /* keep the shim; callers' spawn failures are contained */ }
+      }
+      return exe
     }
+
+    const resolveNode = async () => resolveRealExecutable('node')
 
     /** Resolve the npm CLI script path (Windows shim parse, else `npm`). */
     const resolveNpm = async () => {
@@ -203,6 +222,29 @@ return {
     }
 
     /**
+     * True when the working directory still exists on disk. A renamed/deleted
+     * workspace (or an unmounted drive) must fail fast here instead of letting
+     * spawn surface it asynchronously: on Windows, `child_process.spawn` with a
+     * missing cwd emits the error asynchronously and Node reports it as
+     * `spawn <binary> ENOENT` (the ENOENT points at the cwd, not the binary),
+     * and the DSH subprocess contract turns that into a `handle.done`
+     * rejection — an unhandled one would crash the whole Harness process.
+     * `.`/empty cwd bypass the probe (relative to whatever DSH's cwd is), and
+     * when the fs service is unavailable we skip the check and rely on the
+     * `done` catch in runProcess instead.
+     */
+    const dirExists = async (dir) => {
+      if (!dir || dir === '.') return true
+      if (fs === undefined) return true
+      try {
+        const target = await fs.resolve(dir)
+        return Boolean(await fs.stat(target))
+      } catch {
+        return false
+      }
+    }
+
+    /**
      * Run one bounded CLI process with collected output.
      * @param {object} program - { program, args } from resolveCli/resolveNpm.
      * @param {string[]} extra - extra argv.
@@ -210,6 +252,9 @@ return {
      */
     const runProcess = async (program, extra, cwd) => {
       if (subprocess === undefined) return { ok: false, error: 'subprocess service unavailable', output: '' }
+      if (!(await dirExists(cwd))) {
+        return { ok: false, error: `工作目录不存在: ${cwd}`, output: '' }
+      }
       const argv = [...program.args, ...extra]
       let handle
       try {
@@ -226,7 +271,16 @@ return {
       } catch (err) {
         return { ok: false, error: `spawn 失败: ${String(err && err.message ? err.message : err)}`, output: '' }
       }
-      const outcome = await handle.done
+      let outcome
+      try {
+        outcome = await handle.done
+      } catch (err) {
+        // Only spawn failures reject `done` (missing binary / missing cwd /
+        // EINVAL etc. — DSH subprocess contract); runtime exits resolve it.
+        // The synchronous try above cannot catch these, so an unhandled
+        // rejection here would take down the whole Harness process.
+        return { ok: false, error: `spawn 失败: ${String(err && err.message ? err.message : err)}`, output: '' }
+      }
       const out = handle.collected.stdout ? handle.collected.stdout.readFrom(0).text : ''
       const errOut = handle.collected.stderr ? handle.collected.stderr.readFrom(0).text : ''
       const output = `${out}${errOut ? `\n[stderr]\n${errOut}` : ''}`.slice(-8000)
@@ -307,12 +361,33 @@ return {
     // ModelBridge (M2): DSH model selection → ~/.openwiki/.env
     // ------------------------------------------------------------------
     let homeCache = null
+    let homeProbeFailed = false
 
-    /** Resolve the user home directory once via a tiny node probe. */
+    /**
+     * Resolve the user home directory once (cached).
+     *
+     * Primary source is the ambient process environment (USERPROFILE on
+     * Windows, HOME on POSIX) — exactly the values the node probe below used
+     * to print, but without spawning a subprocess. The probe could fail with
+     * `spawn EINVAL` on Windows when `node` resolves to a nvm/fnm/Volta shim
+     * (see resolveRealExecutable), which silently disabled the
+     * ~/.openwiki/.env model-credential bridge (personal 模式). A node probe
+     * is kept only as a fallback for sandboxed runtimes where the `process`
+     * global is not exposed, and a failed probe is remembered so status polls
+     * never re-spawn a known-broken probe every cycle.
+     */
     const resolveHome = async () => {
       if (homeCache !== null) return homeCache
+      if (homeProbeFailed) return null
+      if (typeof process !== 'undefined' && process.env) {
+        const fromEnv = String(process.env.USERPROFILE || process.env.HOME || '').trim()
+        if (fromEnv.length > 0) { homeCache = fromEnv; return homeCache }
+      }
       const nodeExe = await resolveNode()
-      if (subprocess === undefined || nodeExe === null) return null
+      if (subprocess === undefined || nodeExe === null) {
+        homeProbeFailed = true
+        return null
+      }
       try {
         const handle = subprocess.spawn({
           argv: [nodeExe, '-e', 'console.log(process.env.USERPROFILE || process.env.HOME || "")'],
@@ -322,10 +397,11 @@ return {
         })
         const outcome = await handle.done
         const out = handle.collected.stdout ? handle.collected.stdout.readFrom(0).text.trim() : ''
-        if (outcome.exitCode === 0 && out.length > 0) homeCache = out
+        if (outcome.exitCode === 0 && out.length > 0) { homeCache = out; return homeCache }
       } catch (err) {
         console.error(`openwiki: home probe failed: ${String(err && err.message ? err.message : err)}`)
       }
+      homeProbeFailed = true
       return homeCache
     }
 
@@ -607,10 +683,7 @@ return {
       return autoUpdates.get(key)
     }
 
-    const resolveGit = async () => {
-      if (subprocess === undefined) return null
-      try { return await subprocess.resolveExecutable('git') } catch { return null }
-    }
+    const resolveGit = async () => resolveRealExecutable('git')
 
     const readGitHead = async (wsPath) => {
       const git = await resolveGit()
@@ -661,17 +734,26 @@ return {
       st.enabled = true
       st.lastHead = null
       const tick = async () => {
-        if (!st.enabled) return
-        const head = await readGitHead(ws.path)
-        if (head === null) return
-        if (st.lastHead === null) { st.lastHead = head; return }
-        if (head !== st.lastHead) {
-          st.lastHead = head
-          // Reuse the incremental update job (only changed pages regenerate).
-          // Keep the language of the previous run so regenerated docs stay in
-          // the user's configured language.
-          const lastUpdate = await readLastUpdate(ws.path)
-          await startJob({ workspaceId, mode: 'update', language: (lastUpdate && lastUpdate.language) || 'zh' })
+        // A poll failure must never become an unhandled rejection: the tick is
+        // fire-and-forget (void tick()), and a dead workspace (renamed/deleted
+        // on disk) would otherwise surface every 15s as a raw async error and
+        // crash the Harness process. Failures are contained here — skip the
+        // round (readGitHead already returns null for missing workspaces).
+        try {
+          if (!st.enabled) return
+          const head = await readGitHead(ws.path)
+          if (head === null) return
+          if (st.lastHead === null) { st.lastHead = head; return }
+          if (head !== st.lastHead) {
+            st.lastHead = head
+            // Reuse the incremental update job (only changed pages regenerate).
+            // Keep the language of the previous run so regenerated docs stay in
+            // the user's configured language.
+            const lastUpdate = await readLastUpdate(ws.path)
+            await startJob({ workspaceId, mode: 'update', language: (lastUpdate && lastUpdate.language) || 'zh' })
+          }
+        } catch (err) {
+          console.error(`openwiki: auto-update tick failed for ${ws.path}: ${String(err && err.message ? err.message : err)}`)
         }
       }
       void tick()
